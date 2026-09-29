@@ -25,6 +25,7 @@ from mouser_engine.gui.cart_dialogs import CartConfirmDialog, CartResultDialog  
 from mouser_engine.gui.dialogs import ImportDialog, SearchDialog, SettingsDialog  # noqa: E402
 from mouser_engine.gui.history_dialogs import ComparisonDialog, HistoryDialog  # noqa: E402
 from mouser_engine.gui.main_window import MainWindow  # noqa: E402
+from mouser_engine.gui.report_dialog import ClientReportDialog  # noqa: E402
 from mouser_engine.mouser_api import MouserClient, RateLimiter  # noqa: E402
 
 
@@ -160,6 +161,13 @@ def main() -> int:
     pump(app)
     cart_dialog.grab().save(str(out / "15_carro_resultado.png"))
     cart_dialog.close()
+
+    report_dialog = ClientReportDialog(window._report_options(), window)
+    report_dialog.show()
+    pump(app)
+    report_dialog.grab().save(str(out / "16_informe_opciones.png"))
+    report_dialog.close()
+    window.export_client_report(str(out / "17_informe_cliente.pdf"))
 
     settings_dialog = SettingsDialog(window.settings, window.client, window.workers, window)
     settings_dialog.show()

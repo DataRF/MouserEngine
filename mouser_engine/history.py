@@ -25,7 +25,8 @@ from .utils import normalize_pn
 
 DB_NAME = "historial.sqlite3"
 SNAPSHOT_VERSION = 1
-REASONS = {"manual": "Guardada", "excel": "Exportada a Excel", "cart": "Carro creado en Mouser"}
+REASONS = {"manual": "Guardada", "excel": "Exportada a Excel", "pdf": "Informe PDF para el cliente",
+           "cart": "Carro creado en Mouser"}
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS quotes (

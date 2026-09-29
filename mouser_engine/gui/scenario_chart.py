@@ -4,9 +4,12 @@ Vista superpuesta (solicitada): costo por placa en el eje izquierdo y costo tota
 derecho, sobre un mismo eje de cantidad en escala logarítmica. Vista separada: dos gráficos
 alineados que comparten el eje de cantidad (más fácil de leer cuando las escalas difieren mucho).
 
-La curva hasta la cantidad elegida con la barra se dibuja en color y el resto atenuado, de modo
-que el gráfico "se va generando" al mover la barra. Al pasar el mouse se muestra la lectura de
-esa cantidad y un clic la fija.
+En pantalla, la curva hasta la cantidad elegida con la barra se dibuja en color y el resto
+atenuado, de modo que el gráfico "se va generando" al mover la barra. Al pasar el mouse se
+muestra la lectura de esa cantidad y un clic la fija.
+
+El dibujo está en `ChartPainter`, que no depende del widget: el informe PDF usa el mismo código
+(escalando el QPainter), así el gráfico impreso es idéntico al de la aplicación.
 """
 
 from __future__ import annotations
@@ -56,112 +59,75 @@ def fmt_axis(value: float, maximum: float) -> str:
     return fmt_int(round(value))
 
 
-class ScenarioChart(QWidget):
-    picked = Signal(int)
+class ChartPainter:
+    """Dibuja el gráfico en cualquier QPainter, en coordenadas de pantalla (96 ppp)."""
 
-    def __init__(self, parent=None):
-        super().__init__(parent)
+    def __init__(self) -> None:
         self.points: list[CurvePoint] = []
         self.currency = ""
         self.marks: list[int] = []
         self.max_boards = 1000
-        self.cursor = 1
-        self.cursor_point: CurvePoint | None = None
-        self.hover: CurvePoint | None = None
         self.mode = "overlay"
-        self.stale = False
-        self.setMouseTracking(True)
-        self.setMinimumHeight(300)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.setCursor(Qt.CrossCursor)
-
-    # --- datos -----------------------------------------------------------------
+        self._width = 0.0
 
     def set_data(self, points: list[CurvePoint], currency: str, marks: list[int], max_boards: int) -> None:
         self.points = points
         self.currency = currency
-        self.marks = [m for m in marks if 1 <= m <= max_boards]
-        self.max_boards = max(1, max_boards)
-        self.stale = False
-        self.update()
-
-    def set_cursor(self, boards: int, point: CurvePoint | None) -> None:
-        self.cursor = max(1, boards)
-        self.cursor_point = point
-        self.update()
+        self.max_boards = max(1, int(max_boards))
+        self.marks = [m for m in marks if 1 <= m <= self.max_boards]
 
     def set_mode(self, mode: str) -> None:
         self.mode = mode if mode in ("overlay", "split") else "overlay"
-        self.update()
 
-    def set_stale(self, stale: bool) -> None:
-        self.stale = stale
-        self.update()
+    @property
+    def has_data(self) -> bool:
+        return any(p.priced for p in self.points)
 
     # --- geometría ---------------------------------------------------------------
 
-    def _plots(self) -> list[QRectF]:
+    def plots(self, width: float, height: float) -> list[QRectF]:
         right = RIGHT_PAD_OVERLAY if self.mode == "overlay" else RIGHT_PAD_SPLIT
-        area = QRectF(LEFT_PAD, TOP_PAD, max(10, self.width() - LEFT_PAD - right),
-                      max(10, self.height() - TOP_PAD - BOTTOM_PAD))
+        area = QRectF(LEFT_PAD, TOP_PAD, max(10, width - LEFT_PAD - right), max(10, height - TOP_PAD - BOTTOM_PAD))
         if self.mode == "overlay":
             return [area]
         half = (area.height() - GAP_SPLIT) / 2
         return [QRectF(area.left(), area.top(), area.width(), half),
                 QRectF(area.left(), area.top() + half + GAP_SPLIT, area.width(), half)]
 
-    def _x(self, boards: float, rect: QRectF) -> float:
+    def x_of(self, boards: float, rect: QRectF) -> float:
         if self.max_boards <= 1:
             return rect.left()
         return rect.left() + math.log10(max(1.0, boards)) / math.log10(self.max_boards) * rect.width()
 
-    def _boards_at(self, x: float, rect: QRectF) -> int:
+    def boards_at(self, x: float, rect: QRectF) -> int:
         if self.max_boards <= 1 or rect.width() <= 0:
             return 1
         fraction = min(1.0, max(0.0, (x - rect.left()) / rect.width()))
         return max(1, min(self.max_boards, round(10 ** (fraction * math.log10(self.max_boards)))))
 
-    def _nearest(self, boards: int) -> CurvePoint | None:
+    def nearest(self, boards: int) -> CurvePoint | None:
         if not self.points:
             return None
         return min(self.points, key=lambda p: (abs(math.log10(p.boards) - math.log10(max(1, boards))), p.boards))
 
-    # --- eventos ----------------------------------------------------------------
-
-    def mouseMoveEvent(self, event) -> None:
-        rects = self._plots()
-        pos = event.position()
-        inside = any(r.adjusted(-4, -4, 4, 4).contains(pos) for r in rects)
-        self.hover = self._nearest(self._boards_at(pos.x(), rects[0])) if inside and self.points else None
-        self.update()
-
-    def leaveEvent(self, event) -> None:
-        self.hover = None
-        self.update()
-
-    def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.LeftButton and self.points:
-            rects = self._plots()
-            if any(r.adjusted(-4, -4, 4, 4).contains(event.position()) for r in rects):
-                self.picked.emit(self._boards_at(event.position().x(), rects[0]))
+    def point_at(self, boards: int) -> CurvePoint | None:
+        """El punto calculado para esa cantidad exacta (las cantidades comparadas siempre están)."""
+        return next((p for p in self.points if p.boards == boards), None)
 
     # --- dibujo -----------------------------------------------------------------
 
-    def paintEvent(self, event) -> None:
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        painter.fillRect(self.rect(), QColor(SURFACE))
-        if self.stale:
-            painter.setOpacity(0.45)
-        base_font = QFont(self.font())
-        small = QFont(base_font)
-        small.setPointSizeF(max(7.5, base_font.pointSizeF() - 1))
-        if not self.points or not any(p.priced for p in self.points):
-            painter.setPen(QColor(MUTED))
-            painter.drawText(self.rect(), Qt.AlignCenter,
-                             "Consulte precios en Mouser para ver cómo cambia el costo con la cantidad.")
-            return
-        rects = self._plots()
+    def paint(self, painter: QPainter, width: float, height: float, base_font: QFont, small_font: QFont, *,
+              cursor: int | None = None, shown: CurvePoint | None = None, hovering: bool = False,
+              readout: bool = True, markers: bool = False) -> None:
+        """Dibuja el gráfico en el rectángulo (0, 0, width, height).
+
+        - `cursor`: la curva se dibuja en color hasta esa cantidad y atenuada después (pantalla);
+          None la dibuja completa.
+        - `shown`: cantidad destacada con línea vertical, puntos y (si `readout`) el recuadro de lectura.
+        - `markers`: puntos en cada cantidad comparada (informe impreso).
+        """
+        self._width = width
+        rects = self.plots(width, height)
         unit_data = max(p.total_unit for p in self.points if p.priced) * 1.04
         total_data = max(p.total for p in self.points if p.priced) * 1.04
         unit_step, divisions = axis_scale(unit_data)
@@ -174,28 +140,37 @@ class ScenarioChart(QWidget):
         total_max = total_step * total_divisions
         self._draw_legend(painter, base_font)
         unit_title, total_title = self._axis_titles(
-            QFontMetrics(small), [(f"Costo por placa ({self.currency})", f"Por placa ({self.currency})"),
-                                  (f"Costo total ({self.currency})", f"Total ({self.currency})")],
+            QFontMetrics(small_font), [(f"Costo por placa ({self.currency})", f"Por placa ({self.currency})"),
+                                       (f"Costo total ({self.currency})", f"Total ({self.currency})")],
             rects[0].height())
+        unit_values = [p.total_unit for p in self.points]
+        total_values = [p.total for p in self.points]
         if self.mode == "overlay":
             rect = rects[0]
-            self._draw_grid(painter, rect, small, unit_step, divisions, unit_title,
+            self._draw_grid(painter, rect, small_font, unit_step, divisions, unit_title,
                             right_step=total_step, right_title=total_title)
-            self._draw_x_axis(painter, rect, small)
-            self._draw_series(painter, rect, [p.total for p in self.points], total_max, SERIES_2, area=False)
-            self._draw_series(painter, rect, [p.total_unit for p in self.points], unit_max, SERIES_1, area=True)
-            self._draw_cursor(painter, rects, unit_max, total_max, small)
+            self._draw_x_axis(painter, rect, small_font)
+            self._draw_series(painter, rect, total_values, total_max, SERIES_2, area=False, cursor=cursor)
+            self._draw_series(painter, rect, unit_values, unit_max, SERIES_1, area=True, cursor=cursor)
+            if markers:
+                self._draw_markers(painter, rect, total_values, total_max, SERIES_2)
+                self._draw_markers(painter, rect, unit_values, unit_max, SERIES_1)
         else:
             top, bottom = rects
-            self._draw_grid(painter, top, small, unit_step, divisions, unit_title)
-            self._draw_grid(painter, bottom, small, total_step, total_divisions, total_title)
-            self._draw_x_axis(painter, bottom, small)
-            self._draw_x_axis(painter, top, small, labels=False)
-            self._draw_series(painter, top, [p.total_unit for p in self.points], unit_max, SERIES_1, area=True)
-            self._draw_series(painter, bottom, [p.total for p in self.points], total_max, SERIES_2, area=True)
-            self._draw_cursor(painter, rects, unit_max, total_max, small)
+            self._draw_grid(painter, top, small_font, unit_step, divisions, unit_title)
+            self._draw_grid(painter, bottom, small_font, total_step, total_divisions, total_title)
+            self._draw_x_axis(painter, bottom, small_font)
+            self._draw_x_axis(painter, top, small_font, labels=False)
+            self._draw_series(painter, top, unit_values, unit_max, SERIES_1, area=True, cursor=cursor)
+            self._draw_series(painter, bottom, total_values, total_max, SERIES_2, area=True, cursor=cursor)
+            if markers:
+                self._draw_markers(painter, top, unit_values, unit_max, SERIES_1)
+                self._draw_markers(painter, bottom, total_values, total_max, SERIES_2)
+        if shown is not None:
+            self._draw_cursor(painter, rects, unit_max, total_max, shown, hovering)
         painter.setOpacity(1.0)
-        self._draw_readout(painter, rects[0], base_font, small)
+        if shown is not None and readout:
+            self._draw_readout(painter, rects[0], base_font, small_font, shown)
 
     def _draw_legend(self, painter: QPainter, font: QFont) -> None:
         painter.setFont(font)
@@ -240,7 +215,7 @@ class ScenarioChart(QWidget):
         painter.restore()
         if right_step is not None and right_title:
             painter.save()
-            painter.translate(self.width() - 8, rect.center().y())
+            painter.translate(self._width - 8, rect.center().y())
             painter.rotate(90)
             painter.drawText(QRectF(-rect.height() / 2, -8, rect.height(), 16), Qt.AlignCenter, right_title)
             painter.restore()
@@ -250,14 +225,14 @@ class ScenarioChart(QWidget):
         decades = [10 ** k for k in range(0, int(math.log10(self.max_boards)) + 1)]
         painter.setPen(QPen(QColor(GRIDLINE), 1))
         for value in sorted(set(decades) | set(self.marks)):
-            x = self._x(value, rect)
+            x = self.x_of(value, rect)
             painter.drawLine(QPointF(x, rect.top()), QPointF(x, rect.bottom()))
         if not labels:
             return
         painter.setPen(QColor(MUTED))
         last_right = -1e9
         for value in sorted(set(self.marks) | {1, self.max_boards}):
-            x = self._x(value, rect)
+            x = self.x_of(value, rect)
             text = fmt_int(value)
             width = QFontMetrics(font).horizontalAdvance(text)
             if x - width / 2 < last_right + 4:
@@ -279,7 +254,7 @@ class ScenarioChart(QWidget):
                     break
                 if beyond and point.boards < limit:
                     continue
-            pos = QPointF(self._x(point.boards, rect), rect.bottom() - value / maximum * rect.height())
+            pos = QPointF(self.x_of(point.boards, rect), rect.bottom() - value / maximum * rect.height())
             if not started:
                 path.moveTo(pos)
                 started = True
@@ -288,10 +263,8 @@ class ScenarioChart(QWidget):
         return path
 
     def _draw_series(self, painter: QPainter, rect: QRectF, values: list[float], maximum: float,
-                     color: str, area: bool) -> None:
-        limit = self.cursor
-        drawn = self._series_path(rect, values, maximum, limit, beyond=False)
-        rest = self._series_path(rect, values, maximum, self._last_drawn_boards(limit), beyond=True)
+                     color: str, area: bool, cursor: int | None) -> None:
+        drawn = self._series_path(rect, values, maximum, cursor, beyond=False)
         if area and not drawn.isEmpty():
             fill = QPainterPath(drawn)
             last = drawn.currentPosition()
@@ -302,49 +275,53 @@ class ScenarioChart(QWidget):
             wash = QColor(color)
             wash.setAlphaF(0.10)
             painter.fillPath(fill, wash)
-        ahead = QColor(color)  # tramo a la derecha de la cantidad elegida: mismo color, atenuado
-        ahead.setAlphaF(0.35)
-        painter.setPen(QPen(ahead, 1.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-        painter.drawPath(rest)
+        if cursor is not None:
+            rest = self._series_path(rect, values, maximum, self._last_drawn_boards(cursor), beyond=True)
+            ahead = QColor(color)  # tramo a la derecha de la cantidad elegida: mismo color, atenuado
+            ahead.setAlphaF(0.35)
+            painter.setPen(QPen(ahead, 1.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            painter.drawPath(rest)
         painter.setPen(QPen(QColor(color), 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         painter.drawPath(drawn)
+
+    def _draw_markers(self, painter: QPainter, rect: QRectF, values: list[float], maximum: float, color: str) -> None:
+        wanted = set(self.marks)
+        for point, value in zip(self.points, values):
+            if point.priced and point.boards in wanted:
+                self._dot(painter, QPointF(self.x_of(point.boards, rect), rect.bottom() - value / maximum * rect.height()),
+                          color, radius=4)
 
     def _last_drawn_boards(self, limit: int) -> int:
         drawn = [p.boards for p in self.points if p.priced and p.boards <= limit]
         return drawn[-1] if drawn else 1
 
     def _draw_cursor(self, painter: QPainter, rects: list[QRectF], unit_max: float, total_max: float,
-                     font: QFont) -> None:
-        shown = self.hover or self.cursor_point
-        if shown is None:
-            return
-        for index, rect in enumerate(rects):
-            x = self._x(shown.boards, rect)
-            painter.setPen(QPen(QColor(MUTED if self.hover else TEXT), 1))
+                     shown: CurvePoint, hovering: bool) -> None:
+        for rect in rects:
+            x = self.x_of(shown.boards, rect)
+            painter.setPen(QPen(QColor(MUTED if hovering else TEXT), 1))
             painter.drawLine(QPointF(x, rect.top()), QPointF(x, rect.bottom()))
         if self.mode == "overlay":
             rect = rects[0]
             dots = [(shown.total_unit / unit_max, SERIES_1), (shown.total / total_max, SERIES_2)]
             for fraction, color in dots:
-                self._dot(painter, QPointF(self._x(shown.boards, rect), rect.bottom() - fraction * rect.height()), color)
+                self._dot(painter, QPointF(self.x_of(shown.boards, rect), rect.bottom() - fraction * rect.height()),
+                          color)
         else:
             top, bottom = rects
-            self._dot(painter, QPointF(self._x(shown.boards, top), top.bottom() - shown.total_unit / unit_max * top.height()),
-                      SERIES_1)
-            self._dot(painter, QPointF(self._x(shown.boards, bottom),
+            self._dot(painter, QPointF(self.x_of(shown.boards, top),
+                                       top.bottom() - shown.total_unit / unit_max * top.height()), SERIES_1)
+            self._dot(painter, QPointF(self.x_of(shown.boards, bottom),
                                        bottom.bottom() - shown.total / total_max * bottom.height()), SERIES_2)
 
     @staticmethod
-    def _dot(painter: QPainter, center: QPointF, color: str) -> None:
+    def _dot(painter: QPainter, center: QPointF, color: str, radius: float = 5) -> None:
         painter.setPen(QPen(QColor(SURFACE), 2))
         painter.setBrush(QColor(color))
-        painter.drawEllipse(center, 5, 5)
+        painter.drawEllipse(center, radius, radius)
         painter.setBrush(Qt.NoBrush)
 
-    def _draw_readout(self, painter: QPainter, rect: QRectF, font: QFont, small: QFont) -> None:
-        shown = self.hover or self.cursor_point
-        if shown is None:
-            return
+    def _draw_readout(self, painter: QPainter, rect: QRectF, font: QFont, small: QFont, shown: CurvePoint) -> None:
         bold = QFont(font)
         bold.setBold(True)
         metrics = QFontMetrics(font)
@@ -363,7 +340,7 @@ class ScenarioChart(QWidget):
                     + [QFontMetrics(small).horizontalAdvance(n) for n in notes]) + 20
         height = 12 + bold_metrics.height() + len(rows) * (metrics.height() + 3) + len(notes) * (
             QFontMetrics(small).height() + 1) + 8
-        x_anchor = self._x(shown.boards, rect)
+        x_anchor = self.x_of(shown.boards, rect)
         left = x_anchor + 12 if x_anchor + 12 + width < rect.right() else x_anchor - 12 - width
         box = QRectF(max(rect.left() + 4, left), rect.top() + 6, width, height)
         painter.setPen(QPen(QColor(GRIDLINE), 1))
@@ -392,3 +369,88 @@ class ScenarioChart(QWidget):
             y += QFontMetrics(small).height() + 1
             painter.setPen(QColor("#9A6700"))
             painter.drawText(QPointF(box.left() + 10, y), note)
+
+
+class ScenarioChart(QWidget):
+    """El gráfico en pantalla: barra de cantidad, lectura al pasar el mouse y clic para elegir."""
+
+    picked = Signal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.renderer = ChartPainter()
+        self.cursor = 1
+        self.cursor_point: CurvePoint | None = None
+        self.hover: CurvePoint | None = None
+        self.stale = False
+        self.setMouseTracking(True)
+        self.setMinimumHeight(300)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setCursor(Qt.CrossCursor)
+
+    @property
+    def points(self) -> list[CurvePoint]:
+        return self.renderer.points
+
+    @property
+    def mode(self) -> str:
+        return self.renderer.mode
+
+    # --- datos -----------------------------------------------------------------
+
+    def set_data(self, points: list[CurvePoint], currency: str, marks: list[int], max_boards: int) -> None:
+        self.renderer.set_data(points, currency, marks, max_boards)
+        self.stale = False
+        self.update()
+
+    def set_cursor(self, boards: int, point: CurvePoint | None) -> None:
+        self.cursor = max(1, boards)
+        self.cursor_point = point
+        self.update()
+
+    def set_mode(self, mode: str) -> None:
+        self.renderer.set_mode(mode)
+        self.update()
+
+    def set_stale(self, stale: bool) -> None:
+        self.stale = stale
+        self.update()
+
+    # --- eventos ----------------------------------------------------------------
+
+    def mouseMoveEvent(self, event) -> None:
+        rects = self.renderer.plots(self.width(), self.height())
+        pos = event.position()
+        inside = any(r.adjusted(-4, -4, 4, 4).contains(pos) for r in rects)
+        self.hover = (self.renderer.nearest(self.renderer.boards_at(pos.x(), rects[0]))
+                      if inside and self.points else None)
+        self.update()
+
+    def leaveEvent(self, event) -> None:
+        self.hover = None
+        self.update()
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton and self.points:
+            rects = self.renderer.plots(self.width(), self.height())
+            if any(r.adjusted(-4, -4, 4, 4).contains(event.position()) for r in rects):
+                self.picked.emit(self.renderer.boards_at(event.position().x(), rects[0]))
+
+    # --- dibujo -----------------------------------------------------------------
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.fillRect(self.rect(), QColor(SURFACE))
+        if not self.renderer.has_data:
+            painter.setPen(QColor(MUTED))
+            painter.drawText(self.rect(), Qt.AlignCenter,
+                             "Consulte precios en Mouser para ver cómo cambia el costo con la cantidad.")
+            return
+        if self.stale:
+            painter.setOpacity(0.45)
+        base_font = QFont(self.font())
+        small = QFont(base_font)
+        small.setPointSizeF(max(7.5, base_font.pointSizeF() - 1))
+        self.renderer.paint(painter, self.width(), self.height(), base_font, small, cursor=self.cursor,
+                            shown=self.hover or self.cursor_point, hovering=self.hover is not None)

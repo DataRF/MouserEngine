@@ -172,6 +172,11 @@ def run_self_test(argv: list[str]) -> int:
                 raise RuntimeError("falta la hoja Escenarios")
             workbook.close()
 
+            pdf = window.export_client_report(str(Path(tmp) / "informe.pdf"))
+            if not pdf or not Path(pdf).read_bytes().startswith(b"%PDF"):
+                raise RuntimeError("no se generó el informe PDF")
+            lines.append(f"informe_pdf={Path(pdf).stat().st_size // 1024} KB")
+
             entries = window.history.entries()
             if not entries:
                 raise RuntimeError("no se guardó la cotización en el historial")

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 import time
+from dataclasses import replace
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
@@ -41,6 +43,7 @@ from PySide6.QtWidgets import (
     QTabWidget,
     QTableView,
     QToolBar,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -67,12 +70,15 @@ from ..mouser_api import (
 from ..lookup import lookup_all
 from ..passives import Defaults, parse_spec
 from ..quote import apply_lookup, mark_specs_disabled, queries_for, quote_all, specs_for, summarize
+from ..report import build_client_report
 from .cart_dialogs import CartConfirmDialog, CartResultDialog
 from .detail_panel import DetailPanel
 from .dialogs import ImportDialog, SearchDialog, SettingsDialog
 from .history_dialogs import ComparisonDialog, HistoryDialog, fmt_when
 from .icons import cart_icon
 from .items_model import COL, COLUMNS, STATUS_FILTERS, ItemsFilterModel, ItemsModel
+from .pdf_report import PAGE_LABELS, write_client_report
+from .report_dialog import ClientReportDialog, ReportOptions
 from .scenarios_panel import ScenariosPanel
 from .workers import Worker, WorkerPool
 
@@ -246,6 +252,10 @@ class MainWindow(QMainWindow):
         self.act_export = QAction(self._icon(QStyle.SP_DialogSaveButton), "Exportar Excel…", self)
         self.act_export.setShortcut(QKeySequence("Ctrl+E"))
         self.act_export.triggered.connect(lambda: self.export_excel())
+        self.act_report = QAction(self._icon(QStyle.SP_FileIcon), "Informe PDF para el cliente…", self)
+        self.act_report.setShortcut(QKeySequence("Ctrl+P"))
+        self.act_report.setToolTip("Análisis de costo por volumen en PDF, con plantilla genérica (Ctrl+P)")
+        self.act_report.triggered.connect(lambda: self.export_client_report())
         self.act_cart = QAction(self._icon(QStyle.SP_FileDialogDetailedView), "Exportar carro Mouser…", self)
         self.act_cart.setToolTip("CSV con código Mouser y cantidad para cargar en el carro de mouser.com")
         self.act_cart.triggered.connect(lambda: self.export_cart())
@@ -279,6 +289,7 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self.act_history)
         file_menu.addSeparator()
         file_menu.addAction(self.act_export)
+        file_menu.addAction(self.act_report)
         file_menu.addAction(self.act_cart)
         file_menu.addSeparator()
         file_menu.addAction(self.act_quit)
@@ -306,8 +317,17 @@ class MainWindow(QMainWindow):
             toolbar.addAction(action)
         toolbar.addSeparator()
         toolbar.addAction(self.act_history)
-        toolbar.addAction(self.act_export)
-        toolbar.addAction(self.act_cart)
+        self.export_button = QToolButton()
+        self.export_button.setText("Exportar")
+        self.export_button.setIcon(self._icon(QStyle.SP_DialogSaveButton))
+        self.export_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.export_button.setPopupMode(QToolButton.InstantPopup)
+        self.export_button.setToolTip("Excel, informe PDF para el cliente o carro en CSV")
+        export_menu = QMenu(self.export_button)
+        for action in (self.act_export, self.act_report, self.act_cart):
+            export_menu.addAction(action)
+        self.export_button.setMenu(export_menu)
+        toolbar.addWidget(self.export_button)
         toolbar.addAction(self.act_create_cart)
         toolbar.addSeparator()
         toolbar.addAction(self.act_search)
@@ -707,6 +727,8 @@ class MainWindow(QMainWindow):
         self.act_cancel.setEnabled(busy)
         self.act_export.setEnabled(has_items)
         self.act_save_history.setEnabled(has_items)
+        self.export_button.setEnabled(has_items)
+        self.act_report.setEnabled(has_items and any(q.ext_price is not None for q in self.quotes))
         can_buy = has_items and any(q.part is not None and q.buy_qty for q in self.quotes)
         self.act_cart.setEnabled(can_buy)
         self.act_create_cart.setEnabled(can_buy and not busy and self._cart_worker is None)
@@ -1163,6 +1185,56 @@ class MainWindow(QMainWindow):
         self._offer_open(path, "Cotización exportada")
         return path
 
+    def _report_options(self) -> ReportOptions:
+        project = Path(self.table_doc.path).stem if self.table_doc and self.table_doc.path else ""
+        return ReportOptions(
+            client=self.client_edit.text().strip(), project=project, boards=max(1, self.params.boards),
+            quantities=self.scenarios.quantities, max_boards=self.scenarios.max_boards,
+            chart_mode=self.settings.chart_mode,
+            page_size=self.settings.report_page_size if self.settings.report_page_size in PAGE_LABELS else "letter")
+
+    def export_client_report(self, path: str | None = None, options: ReportOptions | None = None) -> str | None:
+        """Informe PDF para el cliente: análisis de costo por volumen con plantilla genérica."""
+        if not self.items:
+            return None
+        if not any(q.ext_price is not None for q in self.quotes):
+            QMessageBox.information(self, "Informe PDF", "Consulte precios en Mouser antes de generar el informe.")
+            return None
+        if options is None:
+            options = self._report_options()
+            if self.interactive:
+                dialog = ClientReportDialog(options, self)
+                if dialog.exec() != QDialog.Accepted:
+                    return None
+                options = dialog.options()
+        if options.client != self.client_edit.text().strip():
+            self.client_edit.setText(options.client)  # el cliente es el mismo de la cotización
+        self.settings.report_page_size = options.page_size
+        self.save_settings()
+        if not path:
+            name = re.sub(r"[^\w\-]+", "_", options.project or "BOM").strip("_") or "BOM"
+            suggested = Path(self.settings.last_dir or Path.home()) / (
+                f"Informe_costos_{name}_{datetime.now().strftime('%Y%m%d')}.pdf")
+            path, _ = QFileDialog.getSaveFileName(self, "Guardar informe PDF", str(suggested), "PDF (*.pdf)")
+            if not path:
+                return None
+        if not path.lower().endswith(".pdf"):
+            path += ".pdf"
+        report = build_client_report(self.items, replace(self._read_params(), boards=options.boards),
+                                     options.quantities, options.max_boards, client=options.client,
+                                     project=options.project, queried_at=self.last_query,
+                                     chart_mode=options.chart_mode)
+        try:
+            pages = write_client_report(report, path, options.page_size, options.sections)
+        except OSError as exc:
+            QMessageBox.warning(self, "No se pudo guardar", str(exc))
+            return None
+        self.save_to_history("pdf", quiet=True)
+        self.statusBar().showMessage(f"Informe PDF generado ({pages} páginas).", 10000)
+        self._offer_open(path, "Informe generado",
+                         f"Informe para el cliente de {pages} {'página' if pages == 1 else 'páginas'}.")
+        return path
+
     def export_cart(self, path: str | None = None) -> str | None:
         if not self.items:
             return None
@@ -1582,8 +1654,9 @@ la tabla. Las bajas de 10 % o más aparecen en verde.<br><br>
 <b>6. Resistencias y condensadores sin MPN:</b> se eligen solos según valor, encapsulado, tolerancia,
 potencia, tensión y dieléctrico: la opción más conveniente que cumple o supera lo pedido, de un fabricante
 reconocido. Puede cambiarla en «Opciones en Mouser».<br><br>
-<b>7. Exporte</b> la cotización a Excel, el carro en CSV, o use <b>«Crear carro en Mouser»</b> para dejar el
-carro armado en su cuenta (necesita la clave de Cart API). La aplicación nunca envía pedidos.<br><br>
+<b>7. Exporte</b> la cotización a Excel, el <b>informe PDF para el cliente</b> (análisis de costo por volumen,
+Ctrl+P) o el carro en CSV, o use <b>«Crear carro en Mouser»</b> para dejar el carro armado en su cuenta
+(necesita la clave de Cart API). La aplicación nunca envía pedidos.<br><br>
 <b>8. Historial:</b> Ctrl+S guarda la cotización en este computador (también se guarda al exportar a Excel
 y al crear el carro). En «Historial» puede reabrirla, compararla con los precios de hoy o exportarla.<br><br>
 Presione <b>F5</b> para volver a consultar precios y stock. Puede activar la actualización automática en

@@ -62,6 +62,7 @@ class Settings:
     scenario_quantities: str = DEFAULT_SCENARIOS
     scenario_max: int = 1000
     chart_mode: str = "overlay"  # overlay (superpuesto) | split (dos gráficos)
+    report_page_size: str = "letter"  # informe PDF: letter (carta) | a4
     passives_enabled: bool = True
     res_tolerance_default: float = 5.0
     cap_tolerance_default: float = 20.0

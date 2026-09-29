@@ -1,4 +1,5 @@
 -r requirements.txt
 pytest>=8
 pytest-qt>=4.4
+pypdf>=5  # pruebas: leer el texto del informe PDF generado
 pyinstaller>=6.3
