@@ -53,6 +53,13 @@ que va a fabricar.
   **solo crea el carro; nunca envía pedidos**. La compra se revisa y se confirma en mouser.com.
 - **Historial en este computador**: guarda cada cotización con sus precios y stock para reabrirla,
   compararla con los precios de hoy o exportarla. Muestra además la evolución del precio de cada parte.
+- **Informe PDF para el cliente**: análisis de costo por volumen con plantilla genérica (sin la marca de
+  la empresa) para entregar a la empresa para la que se diseña. Incluye:
+  - resumen, gráfico y escenarios comparados;
+  - las partes que más influyen en el costo;
+  - observaciones de stock y ciclo de vida;
+  - el precio de cada parte según la cantidad;
+  - el detalle de partes.
 - **Exportación**:
   - **Excel** con resumen (empresa y cliente), escenarios de volumen con gráficos, detalle, problemas,
     carro y BOM original;
@@ -118,8 +125,9 @@ La moneda de los precios es la de su cuenta de Mouser; se muestra en la primera 
 4. **Escenarios de volumen**: mueva la barra de cantidad o haga clic en el gráfico. «Usar en la
    cotización» lleva esa cantidad al campo de placas. La vista «Separada» muestra dos gráficos.
 5. **Guarde, exporte o cree el carro**:
-   - **Ctrl+S** guarda la cotización en el historial; exportar a Excel y crear el carro también la
-     guardan;
+   - **Exportar** ofrece el Excel, el informe PDF para el cliente y el carro en CSV;
+   - **Ctrl+S** guarda la cotización en el historial; exportar a Excel o a PDF y crear el carro también
+     la guardan;
    - **Crear carro en Mouser** muestra lo que se enviará, pide confirmación y entrega la clave del carro
      (CartKey) con el precio que confirmó Mouser para cada ítem.
 
@@ -131,6 +139,36 @@ esa parte:
 - el fabricante.
 
 Con clic derecho sobre el encabezado se eligen las columnas visibles.
+
+### Informe PDF para el cliente
+
+En **Exportar → Informe PDF para el cliente** (Ctrl+P) se elige:
+
+- el cliente y el proyecto;
+- la cantidad de referencia;
+- las cantidades a comparar;
+- el tipo de gráfico (superpuesto o separado);
+- el tamaño de hoja (carta o A4);
+- las secciones a incluir.
+
+El informe usa una plantilla genérica y no incluye margen de venta. Sus secciones:
+
+1. **Resumen**: cliente, fecha de los precios y cifras clave (costo por placa y total a la cantidad de
+   referencia, y costo por placa a la cantidad mayor).
+2. **Gráfico y escenarios**: el mismo gráfico de la aplicación y la tabla de cantidades comparadas.
+3. **Partes que más influyen en el costo**, con su porcentaje del total.
+4. **Observaciones**:
+   - stock insuficiente a la cantidad de referencia;
+   - stock que no alcanza para volúmenes mayores;
+   - ciclo de vida;
+   - partes sin precio;
+   - compras mínimas altas.
+5. **Precio unitario según la cantidad**: el precio de cada parte en cada escenario.
+6. **Detalle de partes** y **notas** sobre qué incluye el costo.
+
+El PDF es vectorial: se puede ampliar sin perder calidad y su texto se puede buscar y copiar.
+
+![Informe PDF para el cliente](docs/captura_informe.png)
 
 ### Historial
 
@@ -201,6 +239,8 @@ adjunta a un Release, que queda disponible en el enlace de descarga directa.
 | `mouser_engine/scenarios.py` | Escenarios de volumen y curva de costo por cantidad |
 | `mouser_engine/cart.py` | Líneas del carro y referencias para Mouser |
 | `mouser_engine/history.py` | Historial local (SQLite), historial de precios y comparación |
+| `mouser_engine/report.py` | Datos del informe para el cliente: escenarios, partes clave, observaciones y notas |
+| `mouser_engine/gui/pdf_report.py` | Diagramación y dibujo del informe PDF (Qt) |
 | `mouser_engine/export.py` | Excel de cotización y CSV del carro |
 | `mouser_engine/gui/` | Interfaz (PySide6/Qt) |
 | `tests/` | Pruebas, con `fake_mouser.py` como servidor simulado de la API |

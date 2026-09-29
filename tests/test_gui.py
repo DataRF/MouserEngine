@@ -189,6 +189,16 @@ def test_export_from_window(make_window, qtbot, example_bom, tmp_path):
     assert (tmp_path / "carro.csv").read_text(encoding="utf-8-sig").startswith("Mouser Part Number")
 
 
+def test_client_report_from_window(make_window, qtbot, example_bom, tmp_path):
+    window = loaded(qtbot, make_window(client_name="ACME"), example_bom)
+    assert window.act_report.isEnabled() and window.export_button.isEnabled()
+    path = window.export_client_report(str(tmp_path / "informe"))
+    assert path == str(tmp_path / "informe.pdf")
+    assert (tmp_path / "informe.pdf").read_bytes().startswith(b"%PDF")
+    entry = window.history.entries()[0]
+    assert entry.reason == "pdf" and entry.client == "ACME"
+
+
 def test_scenarios_tab(make_window, qtbot, example_bom):
     window = loaded(qtbot, make_window(), example_bom)
     window.main_tabs.setCurrentWidget(window.scenarios)
