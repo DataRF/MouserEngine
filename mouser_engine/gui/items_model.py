@@ -17,7 +17,7 @@ from ..models import (
     lead_time_label,
 )
 from ..utils import parse_int
-from .theme import ROW_BACKGROUND, STATUS_COLOR
+from .theme import ACCENT, ROW_BACKGROUND, STATUS_COLOR
 
 SORT_ROLE = Qt.UserRole + 1
 
@@ -117,6 +117,8 @@ class ItemsModel(QAbstractTableModel):
         if key == "designators":
             return item.designators, item.designators.lower()
         if key == "mpn":
+            if item.by_spec and not item.mpn and part is not None:
+                return part.mpn, part.mpn.lower()
             return item.mpn, item.mpn.lower()
         if key == "manufacturer":
             text = item.manufacturer or (part.manufacturer if part else "")
@@ -198,11 +200,17 @@ class ItemsModel(QAbstractTableModel):
                 return QBrush(QColor(STATUS_COLOR.get(level, "#1F2328")))
             if key == "stock" and q and q.part and q.part.stock is not None and q.buy_qty and q.part.stock < q.buy_qty:
                 return QBrush(QColor(STATUS_COLOR[LEVEL_ERROR]))
+            if key == "mpn" and item.by_spec and not item.mpn:
+                return QBrush(QColor(ACCENT))
             return None
         if role == Qt.FontRole:
             if key in ("status", "ext_price"):
                 font = QFont()
                 font.setBold(True)
+                return font
+            if key == "mpn" and item.by_spec and not item.mpn:
+                font = QFont()
+                font.setItalic(True)
                 return font
             return None
         if role == Qt.ToolTipRole:
@@ -213,6 +221,9 @@ class ItemsModel(QAbstractTableModel):
                 lines.extend(q.notes)
             if key == "description" and (item.display_description or (q and q.part)):
                 lines.insert(0, item.display_description or q.part.description)
+            if key == "mpn" and item.by_spec and not item.mpn:
+                lines.insert(0, "Elegida automáticamente por especificación: " + item.spec.label()
+                             + "<br>Escriba un MPN para reemplazarla.")
             return "<br>".join(lines) if lines else None
         return None
 

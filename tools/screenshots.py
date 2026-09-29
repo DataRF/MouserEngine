@@ -19,8 +19,11 @@ from fake_mouser import FakeMouserServer  # noqa: E402
 
 from mouser_engine.app import create_app  # noqa: E402
 from mouser_engine.bom import load_table  # noqa: E402
+from mouser_engine.cart import cart_lines  # noqa: E402
 from mouser_engine.config import Settings  # noqa: E402
+from mouser_engine.gui.cart_dialogs import CartConfirmDialog, CartResultDialog  # noqa: E402
 from mouser_engine.gui.dialogs import ImportDialog, SearchDialog, SettingsDialog  # noqa: E402
+from mouser_engine.gui.history_dialogs import ComparisonDialog, HistoryDialog  # noqa: E402
 from mouser_engine.gui.main_window import MainWindow  # noqa: E402
 from mouser_engine.mouser_api import MouserClient, RateLimiter  # noqa: E402
 
@@ -42,7 +45,8 @@ def main() -> int:
     def factory(key):
         return MouserClient(key, opener=server.opener, rate_limiter=RateLimiter(1000, 60))
 
-    settings = Settings(api_key="test-key", boards=10, passive_spares_pct=10)
+    settings = Settings(api_key="test-key", cart_api_key="cart-key", boards=10, passive_spares_pct=10,
+                        client_name="Cliente de ejemplo")
     window = MainWindow(settings=settings, client_factory=factory, persist=False)
     window.interactive = False
     window.resize(1500, 920)
@@ -82,6 +86,80 @@ def main() -> int:
     window.optimize_check.setChecked(True)
     pump(app, 0.6)
     window.grab().save(str(out / "05_tramos_optimizados.png"))
+
+    window.boards_spin.setValue(10)
+    window.vat_spin.setValue(0)
+    window.fx_spin.setValue(0)
+    window.optimize_check.setChecked(False)
+    window.main_tabs.setCurrentIndex(1)
+    deadline = time.monotonic() + 10
+    while not window.scenarios.chart.points and time.monotonic() < deadline:
+        pump(app, 0.05)
+    pump(app, 0.6)
+    window.scenarios.set_boards(40)
+    pump(app)
+    window.grab().save(str(out / "08_escenarios.png"))
+    window.scenarios.mode_combo.setCurrentIndex(1)
+    window.scenarios.set_boards(300)
+    pump(app)
+    window.grab().save(str(out / "09_escenarios_separados.png"))
+    window.scenarios.mode_combo.setCurrentIndex(0)
+    window.main_tabs.setCurrentIndex(0)
+
+    passive = next(i for i in window.items if i.by_spec)
+    window.select_item(passive)
+    window.detail.setCurrentIndex(2)
+    pump(app)
+    window.grab().save(str(out / "10_pasivo_automatico.png"))
+
+    # Historial: dos cotizaciones guardadas con precios distintos y la comparación con "hoy".
+    window.boards_spin.setValue(10)
+    pump(app)
+    first_id = window.save_to_history()
+    cap_raw = next(p for p in server.parts if p["MouserPartNumber"] == "81-GRM188R71C104KA1D")
+    cap_raw["PriceBreaks"][1]["Price"] = "$0.024"
+    window.start_lookup()
+    deadline = time.monotonic() + 20
+    while window._lookup_worker is not None and time.monotonic() < deadline:
+        pump(app, 0.05)
+    window.export_excel(str(out / "_config" / "cotizacion.xlsx"))
+    history = HistoryDialog(window.history, window)
+    history.show()
+    pump(app)
+    history.grab().save(str(out / "11_historial.png"))
+    history.close()
+
+    cap_raw["PriceBreaks"][1]["Price"] = "$0.030"
+    window.open_history_entry(first_id, compare=True)
+    deadline = time.monotonic() + 20
+    while window.last_comparison is None and time.monotonic() < deadline:
+        pump(app, 0.05)
+    comparison = ComparisonDialog(window.last_comparison, window._compare_before_total, window.summary.total,
+                                  window.summary.currency, window.history_entry.created_at, window)
+    comparison.show()
+    pump(app)
+    comparison.grab().save(str(out / "12_comparacion.png"))
+    comparison.close()
+
+    cap = next(i for i in window.items if i.mpn == "GRM188R71C104KA01D")
+    window.select_item(cap)
+    window.detail.setCurrentWidget(window.detail.history_page)
+    pump(app)
+    window.grab().save(str(out / "13_historial_precios.png"))
+
+    lines = cart_lines(window.items, window.quotes)
+    confirm = CartConfirmDialog(lines, window.summary.currency, window._cart_notes(lines), window)
+    confirm.show()
+    pump(app)
+    confirm.grab().save(str(out / "14_carro_confirmar.png"))
+    confirm.close()
+    result = window.cart_client().cart_insert(lines)
+    local_total = sum(line.ext_price for line in lines if line.ext_price is not None)
+    cart_dialog = CartResultDialog(result, local_total, window)
+    cart_dialog.show()
+    pump(app)
+    cart_dialog.grab().save(str(out / "15_carro_resultado.png"))
+    cart_dialog.close()
 
     settings_dialog = SettingsDialog(window.settings, window.client, window.workers, window)
     settings_dialog.show()

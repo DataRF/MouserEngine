@@ -19,7 +19,9 @@ from .models import (
     lead_time_label,
     packaging_label,
 )
+from .cart import cart_lines
 from .pricing import format_breaks
+from .scenarios import CostModel, CurvePoint, ScenarioRow, scenario_table
 
 _FILLS = {
     LEVEL_OK: "E3F4E8",
@@ -31,6 +33,9 @@ _HEADER_FILL = "1F3A5F"
 _PRICE_FMT = "#,##0.00###"
 _MONEY_FMT = "#,##0.00"
 _INT_FMT = "#,##0"
+_PCT_FMT = '+0.0%;-0.0%;0.0%'
+_SERIES_COLORS = ("2A78D6", "EB6834")  # mismos colores que el gráfico de la aplicación
+BIG_DROP = -10  # % de baja del costo por placa que se destaca
 
 DETAIL_COLUMNS = [
     ("Ítem", 6), ("Líneas BOM", 10), ("Comprar", 9), ("Designadores", 22), ("MPN (BOM)", 22),
@@ -117,7 +122,16 @@ def export_excel(
     bom_path: str = "",
     bom_grid: list[list[str]] | None = None,
     queried_at: datetime | None = None,
+    scenario_quantities: list[int] | None = None,
+    scenario_max: int | None = None,
+    client_name: str = "",
+    company_name: str = "",
 ) -> Path:
+    """Escribe la cotización en Excel.
+
+    Con `scenario_quantities` agrega la hoja «Escenarios» (costo por placa y total para cada
+    cantidad, con dos gráficos nativos de Excel hasta `scenario_max` placas).
+    """
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     from openpyxl.utils import get_column_letter
@@ -136,7 +150,12 @@ def export_excel(
     ws["A1"] = "Cotización Mouser"
     ws["A1"].font = Font(bold=True, size=16, color=_HEADER_FILL)
     now = datetime.now()
-    rows: list[tuple[str, object, str | None]] = [
+    rows: list[tuple[str, object, str | None]] = []
+    if company_name:
+        rows.append(("Empresa", company_name, None))
+    if client_name:
+        rows.append(("Cliente", client_name, None))
+    rows += [
         ("Generado", now.strftime("%d-%m-%Y %H:%M"), None),
         ("Precios y stock consultados", queried_at.strftime("%d-%m-%Y %H:%M") if queried_at else "—", None),
         ("Archivo BOM", Path(bom_path).name if bom_path else "—", None),
@@ -193,6 +212,15 @@ def export_excel(
     ws.column_dimensions["A"].width = 34
     ws.column_dimensions["B"].width = 22
     _page_setup(ws, landscape=False)
+
+    # --- Escenarios de volumen -------------------------------------------------
+    if scenario_quantities:
+        quantities = sorted(set(q for q in scenario_quantities if q > 0))
+        maximum = max(scenario_max or 0, quantities[-1] if quantities else 1, 10)
+        scenario_rows = scenario_table(items, params, quantities)
+        curve = CostModel(items, params).curve(maximum, extra=quantities)
+        _write_scenarios(wb.create_sheet("Escenarios"), scenario_rows, curve, params, currency, maximum,
+                         client_name, header_font, header_fill, border)
 
     # --- Detalle y Problemas ---------------------------------------------------
     def write_detail(sheet, pairs):
@@ -270,17 +298,130 @@ def export_excel(
     return path
 
 
+def _chart_title(text: str):
+    """Título de gráfico en 11 pt (el predeterminado de Excel es demasiado grande para estos gráficos)."""
+    from openpyxl.chart.text import RichText, Text
+    from openpyxl.chart.title import Title
+    from openpyxl.drawing.text import CharacterProperties, Paragraph, ParagraphProperties, RegularTextRun
+
+    props = CharacterProperties(sz=1100, b=True)
+    paragraph = Paragraph(pPr=ParagraphProperties(defRPr=props), r=[RegularTextRun(rPr=props, t=text)])
+    return Title(tx=Text(rich=RichText(p=[paragraph])), overlay=False)
+
+
+def _write_scenarios(sheet, rows: list[ScenarioRow], curve: list[CurvePoint], params: QuoteParams,
+                     currency: str, maximum: int, client_name: str, header_font, header_fill, border) -> None:
+    from openpyxl.chart import Reference, ScatterChart, Series
+    from openpyxl.styles import Alignment, Font
+    from openpyxl.utils import get_column_letter
+
+    sheet["A1"] = "Escenarios de volumen"
+    sheet["A1"].font = Font(bold=True, size=16, color=_HEADER_FILL)
+    details = []
+    if client_name:
+        details.append(f"Cliente: {client_name}")
+    details.append(f"Merma general {params.spares_pct:g} %, pasivos {params.passive_spares_pct:g} %")
+    details.append("optimización por tramos: " + ("sí" if params.optimize_breaks else "no"))
+    if params.freight or params.duty_pct or params.vat_pct:
+        details.append("incluye flete, arancel e IVA ingresados")
+    sheet["A2"] = " · ".join(details)
+    sheet["A2"].font = Font(italic=True, color="555555")
+
+    money = f" ({currency})" if currency else ""
+    columns = [("Placas", 11, _INT_FMT), (f"Costo por placa{money}", 16, _PRICE_FMT),
+               ("Variación por placa", 14, _PCT_FMT), (f"Costo total{money}", 16, _MONEY_FMT),
+               (f"Solo componentes{money}", 16, _MONEY_FMT), (f"Ahorro posible por tramos{money}", 17, _MONEY_FMT),
+               ("Partes sin stock suficiente", 15, _INT_FMT), ("Partes sin precio", 12, _INT_FMT)]
+    header_row = 4
+    for col, (title, width, _) in enumerate(columns, start=1):
+        cell = sheet.cell(row=header_row, column=col, value=title)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        sheet.column_dimensions[get_column_letter(col)].width = width
+    sheet.row_dimensions[header_row].height = 46
+    for r, row in enumerate(rows, start=header_row + 1):
+        values = [row.boards, _num(row.total_unit), float(row.change) / 100 if row.change is not None else None,
+                  _num(row.total), _num(row.goods), _num(row.savings) if row.savings else None,
+                  row.short or None, row.unpriced or None]
+        for c, value in enumerate(values, start=1):
+            cell = sheet.cell(row=r, column=c, value=value)
+            cell.number_format = columns[c - 1][2]
+            cell.border = border
+        if row.total_unit is not None:  # como en la aplicación: 2 decimales, 4 si es menos de 1
+            sheet.cell(row=r, column=2).number_format = _MONEY_FMT if row.total_unit >= 1 else "#,##0.00##"
+        if row.change is not None and row.change <= BIG_DROP:
+            sheet.cell(row=r, column=3).font = Font(bold=True, color="1A7F37")
+    last_row = header_row + len(rows)
+    note_row = last_row + 1
+    sheet.cell(row=note_row, column=1,
+               value="En verde, bajas de 10 % o más del costo por placa respecto de la cantidad anterior. "
+                     "Las partes sin precio no se suman.").font = Font(italic=True, color="555555")
+
+    # Datos de la curva (a la derecha de la tabla), para los gráficos.
+    data_col = len(columns) + 2
+    for offset, (title, fmt) in enumerate([("Placas", _INT_FMT), (f"Costo por placa{money}", _PRICE_FMT),
+                                           (f"Costo total{money}", _MONEY_FMT)]):
+        cell = sheet.cell(row=header_row, column=data_col + offset, value=title)
+        cell.font = Font(bold=True, color="555555")
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        sheet.column_dimensions[get_column_letter(data_col + offset)].width = 14
+    sheet.cell(row=header_row - 1, column=data_col, value="Datos de los gráficos").font = Font(italic=True,
+                                                                                               color="555555")
+    points = [p for p in curve if p.priced]
+    for r, point in enumerate(points, start=header_row + 1):
+        sheet.cell(row=r, column=data_col, value=point.boards).number_format = _INT_FMT
+        sheet.cell(row=r, column=data_col + 1, value=round(point.total_unit, 4)).number_format = _PRICE_FMT
+        sheet.cell(row=r, column=data_col + 2, value=round(point.total, 2)).number_format = _MONEY_FMT
+    sheet.freeze_panes = sheet.cell(row=header_row + 1, column=1)
+
+    if points:
+        first, last = header_row + 1, header_row + len(points)
+        xs = Reference(sheet, min_col=data_col, min_row=first, max_row=last)
+        anchor_row = note_row + 2
+
+        def width_cm(first_col: int, last_col: int) -> float:  # ancho de columnas de Excel en cm (96 ppp)
+            pixels = sum(columns[c - 1][1] * 7 + 5 for c in range(first_col, last_col + 1))
+            return pixels / 37.8 - 0.2
+
+        specs = [(data_col + 1, "Costo por placa según la cantidad", f"{currency} por placa".strip(),
+                  _SERIES_COLORS[0], "A", width_cm(1, 4)),
+                 (data_col + 2, "Costo total según la cantidad", f"Total {currency}".strip(), _SERIES_COLORS[1],
+                  "E", width_cm(5, 8))]
+        unit_top = max(p.total_unit for p in points)
+        for col, title, y_title, color, anchor_col, width in specs:
+            chart = ScatterChart()
+            chart.title = _chart_title(title)
+            chart.style = 2
+            chart.height = 7.5
+            chart.width = width
+            chart.legend = None
+            chart.x_axis.title = "Placas (escala logarítmica)"
+            chart.y_axis.title = y_title
+            chart.x_axis.scaling.logBase = 10
+            chart.x_axis.scaling.min = 1
+            chart.x_axis.scaling.max = maximum
+            chart.y_axis.scaling.min = 0
+            chart.x_axis.number_format = _INT_FMT
+            chart.y_axis.number_format = "#,##0.00" if col == data_col + 1 and unit_top < 10 else _INT_FMT
+            chart.x_axis.majorGridlines = None
+            chart.x_axis.delete = False  # Excel reciente oculta los ejes si no se indica
+            chart.y_axis.delete = False
+            series = Series(Reference(sheet, min_col=col, min_row=first, max_row=last), xs, title=title)
+            series.marker.symbol = "none"
+            series.smooth = False
+            series.graphicalProperties.line.solidFill = color
+            series.graphicalProperties.line.width = 28575  # 2,25 pt
+            chart.series.append(series)
+            sheet.add_chart(chart, f"{anchor_col}{anchor_row}")
+        sheet.print_area = f"A1:{get_column_letter(len(columns))}{anchor_row + 15}"
+    _page_setup(sheet, landscape=True)
+
+
 def cart_rows(items: list[BomItem], quotes: list[ItemQuote]) -> list[list]:
-    """Filas para cargar el carro en Mouser: código Mouser, cantidad y referencia."""
-    rows = []
-    for item, q in zip(items, quotes):
-        if not item.include or q.level == LEVEL_EXCLUDED or q.part is None or not q.buy_qty:
-            continue
-        if not q.part.orderable:
-            continue
-        reference = (item.designators or f"Linea {item.rows_label}").replace("*", "")[:30]
-        rows.append([q.part.mouser_pn, q.buy_qty, reference, q.part.mpn, q.part.description])
-    return rows
+    """Filas para cargar el carro en Mouser: código Mouser, cantidad y referencia (≤ 21 caracteres)."""
+    return [[line.mouser_pn, line.quantity, line.customer_pn, line.mpn, line.description]
+            for line in cart_lines(items, quotes)]
 
 
 def export_cart_csv(path: str | Path, items: list[BomItem], quotes: list[ItemQuote]) -> int:

@@ -187,7 +187,8 @@ def test_lookup_can_be_cancelled(client):
 
 def test_keyword_search(server, client):
     total, parts = client.search_keyword("resistors 0603", in_stock_only=True)
-    assert total == 2 and len(parts) == 2
+    assert total == len(parts) >= 2
+    assert all(p.stock and p.stock > 0 for p in parts)
     body = server.calls[0]["body"]["SearchByKeywordRequest"]
     assert body["searchOptions"] == "InStock" and body["records"] == 50
 

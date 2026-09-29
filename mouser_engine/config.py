@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import threading
 from dataclasses import asdict, dataclass, fields
@@ -19,6 +20,24 @@ from pathlib import Path
 from .mouser_api import DAILY_LIMIT
 
 ENV_API_KEY = "MOUSER_API_KEY"
+ENV_CART_API_KEY = "MOUSER_CART_API_KEY"
+DEFAULT_SCENARIOS = "1, 10, 25, 50, 100, 500, 1000"
+
+
+def parse_quantities(text: str) -> list[int]:
+    """"1, 10, 25; 50 100" -> [1, 10, 25, 50, 100] (sin repetidos, ordenado, solo positivos)."""
+    values = set()
+    for token in re.split(r"[^\d.]+", text or ""):
+        token = token.strip(".")
+        if not token:
+            continue
+        try:
+            number = int(float(token))
+        except ValueError:
+            continue
+        if 0 < number <= 10_000_000:
+            values.add(number)
+    return sorted(values)
 
 
 def config_dir() -> Path:
@@ -37,6 +56,16 @@ def config_dir() -> Path:
 @dataclass
 class Settings:
     api_key: str = ""
+    cart_api_key: str = ""
+    company_name: str = "FARADIUM SPA"
+    client_name: str = ""
+    scenario_quantities: str = DEFAULT_SCENARIOS
+    scenario_max: int = 1000
+    chart_mode: str = "overlay"  # overlay (superpuesto) | split (dos gráficos)
+    passives_enabled: bool = True
+    res_tolerance_default: float = 5.0
+    cap_tolerance_default: float = 20.0
+    cap_voltage_default: float = 16.0
     batch_size: int = 10
     timeout: int = 30
     auto_refresh_minutes: int = 0
@@ -66,6 +95,14 @@ class Settings:
     @property
     def api_key_from_env(self) -> bool:
         return bool(os.environ.get(ENV_API_KEY, "").strip())
+
+    @property
+    def effective_cart_api_key(self) -> str:
+        return (os.environ.get(ENV_CART_API_KEY) or self.cart_api_key or "").strip()
+
+    @property
+    def scenario_list(self) -> list[int]:
+        return parse_quantities(self.scenario_quantities) or parse_quantities(DEFAULT_SCENARIOS)
 
     # --- Contador diario de consultas -------------------------------------
 

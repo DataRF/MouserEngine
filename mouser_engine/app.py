@@ -103,6 +103,12 @@ class _SelfTestResponse(io.BytesIO):
 
 def _self_test_opener(request, timeout=None):
     body = json.loads(request.data.decode("utf-8"))
+    if "/cart/items/insert" in request.full_url:
+        items = [{"MouserPartNumber": i["MouserPartNumber"], "Quantity": i["Quantity"], "Errors": [],
+                  "InfoMessages": [], "UnitPrice": 0.1, "ExtendedPrice": round(0.1 * i["Quantity"], 2)}
+                 for i in body.get("CartItems") or []]
+        payload = {"Errors": [], "CartKey": "self-test-cart", "CurrencyCode": "USD", "CartItems": items}
+        return _SelfTestResponse(json.dumps(payload).encode("utf-8"))
     wanted = body.get("SearchByPartRequest", {}).get("mouserPartNumber", "").upper().split("|")
     parts = [p for p in _SELF_TEST_PARTS
              if p["ManufacturerPartNumber"].upper() in wanted or p["MouserPartNumber"].upper() in wanted]
@@ -124,10 +130,20 @@ def run_self_test(argv: list[str]) -> int:
         from .gui.main_window import MainWindow
         from .mouser_api import MouserClient, RateLimiter
 
+        def wait_for(condition, seconds: float = 30) -> None:
+            deadline = time.monotonic() + seconds
+            while not condition() and time.monotonic() < deadline:
+                app.processEvents(QEventLoop.AllEvents, 100)
+                time.sleep(0.02)
+            app.processEvents()
+
+        previous_config = os.environ.get("MOUSER_ENGINE_CONFIG_DIR")
         with tempfile.TemporaryDirectory() as tmp:
+            # nunca tocar la configuración ni el historial reales del usuario
+            os.environ["MOUSER_ENGINE_CONFIG_DIR"] = str(Path(tmp) / "config")
             bom = Path(tmp) / "bom.csv"
             bom.write_text(_SELF_TEST_BOM, encoding="utf-8")
-            settings = Settings(api_key="self-test", boards=10)
+            settings = Settings(api_key="self-test", cart_api_key="self-test", boards=10)
             factory = lambda key: MouserClient(key, opener=_self_test_opener,  # noqa: E731
                                                rate_limiter=RateLimiter(1000, 60))
             window = MainWindow(settings=settings, client_factory=factory, persist=False)
@@ -135,23 +151,46 @@ def run_self_test(argv: list[str]) -> int:
             window.show()
             if not window.load_table(load_table(bom)):
                 raise RuntimeError("no se cargó el BOM")
-            deadline = time.monotonic() + 30
-            while window._lookup_worker is not None and time.monotonic() < deadline:
-                app.processEvents(QEventLoop.AllEvents, 100)
-                time.sleep(0.02)
-            app.processEvents()
+            wait_for(lambda: window._lookup_worker is None)
             lines.append(f"subtotal={window.summary.goods} currency={window.summary.currency}")
             if window.summary.priced != 2:
                 raise RuntimeError(f"se esperaban 2 partes con precio, hay {window.summary.priced}")
+
+            window.main_tabs.setCurrentWidget(window.scenarios)
+            wait_for(lambda: bool(window.scenarios.chart.points), 15)
+            window.grab()  # dibuja el gráfico de escenarios
+            if window.scenarios.table.rowCount() != 7:
+                raise RuntimeError("no se calcularon los escenarios de volumen")
+            lines.append(f"escenarios={window.scenarios.table.rowCount()} puntos={len(window.scenarios.chart.points)}")
+
             out = window.export_excel(str(Path(tmp) / "cotizacion.xlsx"))
             if not out or not Path(out).exists():
                 raise RuntimeError("no se generó el Excel")
             workbook = load_workbook(out)
             lines.append(f"hojas={workbook.sheetnames}")
+            if "Escenarios" not in workbook.sheetnames:
+                raise RuntimeError("falta la hoja Escenarios")
             workbook.close()
+
+            entries = window.history.entries()
+            if not entries:
+                raise RuntimeError("no se guardó la cotización en el historial")
+            restored = window.history.load(entries[0].id)
+            lines.append(f"historial={len(entries)} partes={len(restored.items)}")
+
+            if not window.create_cart():
+                raise RuntimeError("no se inició la creación del carro")
+            wait_for(lambda: window._cart_worker is None)
+            if window.last_cart is None or window.last_cart.cart_key != "self-test-cart":
+                raise RuntimeError("no se creó el carro")
+            lines.append(f"carro={window.last_cart.cart_key} items={len(window.last_cart.items)}")
             window.close()
             QTimer.singleShot(0, app.quit)
             app.exec()
+            if previous_config is None:
+                os.environ.pop("MOUSER_ENGINE_CONFIG_DIR", None)
+            else:
+                os.environ["MOUSER_ENGINE_CONFIG_DIR"] = previous_config
         lines.append("SELF-TEST OK")
         code = 0
     except Exception:  # noqa: BLE001

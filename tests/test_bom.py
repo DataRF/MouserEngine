@@ -96,7 +96,8 @@ def test_example_bom(example_bom):
     resistors = items[1]
     assert resistors.qty_per_board == 10
     no_pn = next(i for i in items if i.rows == [15])
-    assert no_pn.lookup_state == "noquery"
+    assert no_pn.lookup_state == "pending" and no_pn.by_spec
+    assert no_pn.spec.label() == "Resistencia 4,7 kΩ ±1 % 0603"
     dnp = items[-1]
     assert dnp.qty_per_board == 0 and not dnp.include and dnp.rows == [16]
 
@@ -155,3 +156,55 @@ def test_unsupported_format(tmp_path):
     path.write_bytes(b"%PDF")
     with pytest.raises(BomError):
         load_table(path)
+
+
+def test_fusion360_eagle_bom(tmp_path):
+    path = tmp_path / "fusion.csv"
+    path.write_text(
+        '"Qty";"Value";"Device";"Package";"Parts";"Description";"MF";"MPN";"DIST";"DPN";"MOUSER_PRICE-STOCK"\n'
+        '"2";"10k";"R-US_R0603";"R0603";"R1, R2";"RESISTOR, American symbol";"";"";"";"";""\n'
+        '"1";"";"LM358D";"SO08";"U1";"Op amp";"Texas Instruments";"LM358DR";"Mouser";"595-LM358DR";"https://x"\n'
+        '"3";"100n";"C-USC0603";"C0603";"C1, C2, C3";"CAPACITOR";"";"";"";"";""\n', encoding="utf-8")
+    table = load_table(path)
+    headers = table.headers
+    named = {field: headers[idx] for field, idx in table.mapping.items()}
+    assert named == {"qty": "Qty", "value": "Value", "footprint": "Package", "designators": "Parts",
+                     "description": "Description", "manufacturer": "MF", "mpn": "MPN", "mouser_pn": "DPN"}
+    items, warnings = build_items(table)
+    assert warnings == []
+    resistor, opamp, cap = items
+    assert resistor.by_spec and resistor.spec.label() == "Resistencia 10 kΩ 0603"
+    assert resistor.extra.get("Device") == "R-US_R0603"
+    assert opamp.mouser_pn == "595-LM358DR" and opamp.manufacturer == "Texas Instruments"
+    assert cap.by_spec and cap.spec.label() == "Condensador 100 nF 0603" and cap.qty_per_board == 3
+
+
+def test_samacsys_attributes_do_not_map_price_column():
+    headers = ["Qty", "Parts", "MANUFACTURER_NAME", "MANUFACTURER_PART_NUMBER", "MOUSER_PRICE-STOCK",
+               "MOUSER_PART_NUMBER"]
+    assert names(auto_map(headers), headers) == {
+        "qty": "Qty", "designators": "Parts", "manufacturer": "MANUFACTURER_NAME",
+        "mpn": "MANUFACTURER_PART_NUMBER", "mouser_pn": "MOUSER_PART_NUMBER"}
+    only_price = ["Qty", "Parts", "MPN", "MOUSER_PRICE-STOCK"]
+    assert "mouser_pn" not in auto_map(only_price)
+
+
+def test_kicost_hash_headers():
+    headers = ["Refs", "Qty", "manf#", "manf", "Desc"]
+    assert names(auto_map(headers), headers) == {
+        "designators": "Refs", "qty": "Qty", "mpn": "manf#", "manufacturer": "manf", "description": "Desc"}
+
+
+def test_handmade_excel_with_technical_columns(tmp_path):
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["Designador", "Cantidad", "Valor", "Encapsulado", "Tolerancia", "Voltaje", "Dieléctrico", "Precio"])
+    ws.append(["C1, C2", 2, "1uF", "0402", "10%", "16V", "X7R", 0.02])
+    ws.append(["R7", 1, "4k7", "0805", "1%", "", "", 0.01])
+    path = tmp_path / "manual.xlsx"
+    wb.save(path)
+    items, _ = build_items(load_table(path))
+    cap, res = items
+    assert cap.spec.label() == "Condensador 1 µF ±10 % 16 V X7R 0402"
+    assert "Precio" not in cap.extra
+    assert res.spec.label() == "Resistencia 4,7 kΩ ±1 % 0805"

@@ -19,6 +19,7 @@ def isolated_config(tmp_path, monkeypatch):
     """Nunca escribir en la configuración real del usuario durante las pruebas."""
     monkeypatch.setenv("MOUSER_ENGINE_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.delenv("MOUSER_API_KEY", raising=False)
+    monkeypatch.delenv("MOUSER_CART_API_KEY", raising=False)
 
 
 @pytest.fixture

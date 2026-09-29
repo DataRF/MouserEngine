@@ -52,10 +52,35 @@ def test_cart_rows_and_csv(client, example_bom, tmp_path):
     assert "81-GRM188R71C104KA1D" in pns
     assert "700-MAX232CPE" not in pns          # sin precio
     assert pns.count("81-GRM188R71C104KA1D") == 1  # la línea DNP no se compra
-    assert all(len(r[2]) <= 30 and "*" not in r[2] for r in rows)
+    assert all(len(r[2]) <= 21 and "*" not in r[2] for r in rows)  # límite de la Cart API
     path = tmp_path / "carro.csv"
     assert export_cart_csv(path, items, quotes) == len(rows)
     with path.open(encoding="utf-8-sig") as fh:
         data = list(csv.reader(fh))
     assert data[0][:2] == ["Mouser Part Number", "Quantity"]
     assert data[1][:2] == ["81-GRM188R71C104KA1D", "80"]
+
+
+def test_export_excel_scenarios(client, example_bom, tmp_path):
+    _, items, quotes, summary, params = build(client, example_bom, boards=10, passive_spares_pct=10)
+    path = export_excel(tmp_path / "cot.xlsx", items, quotes, summary, params,
+                        scenario_quantities=[1, 10, 25, 50, 100, 500, 1000], scenario_max=1000,
+                        client_name="Cliente de prueba", company_name="FARADIUM SPA")
+    wb = load_workbook(path)
+    assert wb.sheetnames == ["Resumen", "Escenarios", "Detalle", "Problemas", "Carro Mouser"]
+    resumen = {row[0]: row[1] for row in wb["Resumen"].iter_rows(min_row=3, values_only=True) if row[0]}
+    assert resumen["Empresa"] == "FARADIUM SPA" and resumen["Cliente"] == "Cliente de prueba"
+    sheet = wb["Escenarios"]
+    assert "Cliente de prueba" in sheet["A2"].value
+    headers = [c.value for c in sheet[4]][:8]
+    assert headers[0] == "Placas" and headers[1] == "Costo por placa (USD)"
+    rows = [r[:8] for r in sheet.iter_rows(min_row=5, max_row=11, values_only=True)]
+    assert [r[0] for r in rows] == [1, 10, 25, 50, 100, 500, 1000]
+    ten = dict(zip(headers, rows[1]))
+    assert abs(ten["Costo total (USD)"] - float(summary.total)) < 0.001  # 10 placas = cotización actual
+    assert rows[0][2] is None and rows[1][2] < -0.1  # variación en fracción (formato %)
+    assert sheet.cell(row=6, column=3).font.b  # baja importante destacada
+    assert len(sheet._charts) == 2
+    # los gráficos toman los datos de la curva (a la derecha de la tabla)
+    curve_boards = [r[0] for r in sheet.iter_rows(min_row=5, min_col=10, max_col=10, values_only=True) if r[0]]
+    assert curve_boards[0] == 1 and curve_boards[-1] == 1000 and len(curve_boards) > 50

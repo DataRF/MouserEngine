@@ -1,6 +1,9 @@
-"""Cliente de la Mouser Search API (v1).
+"""Cliente de la Mouser Search API (v1) y de la Cart API (solo para crear carros).
 
 Documentación oficial: https://api.mouser.com/api/docs/ui/index
+
+La aplicación nunca usa la Order API: no envía pedidos. El carro creado queda en la cuenta de
+Mouser para revisarlo y comprarlo desde mouser.com.
 
 Se usa solo la biblioteca estándar (urllib) para que la aplicación respete el almacén de
 certificados y el proxy configurados en Windows, sin dependencias adicionales.
@@ -20,12 +23,16 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from . import __version__
+from .cart import CartItemResult, CartLine, CartResult, merge_lines
 from .models import Part
 from .utils import chunks, normalize_pn
 
 API_BASE = "https://api.mouser.com/api/v1"
+CART_API_BASE = "https://api.mouser.com/api/v1.0"  # según la guía de la Cart/Order API
 MAX_PARTS_PER_QUERY = 10  # la API acepta hasta 10 números de parte separados por "|"
 DAILY_LIMIT = 1000  # límite diario de consultas informado por Mouser para la Search API
+MAX_CART_ITEMS_PER_REQUEST = 100  # Cart API: hasta 100 ítems por solicitud…
+MAX_CART_ITEMS = 399  # …y hasta 399 ítems en total por carro
 
 
 class MouserError(Exception):
@@ -125,10 +132,23 @@ class MouserClient:
 
     # --- HTTP -------------------------------------------------------------
 
-    def _post(self, path: str, body: dict, cancel: threading.Event | None = None) -> dict:
+    def _post(self, path: str, body: dict, cancel: threading.Event | None = None, *,
+              base: str = API_BASE, query: dict[str, str] | None = None, retry: bool = True,
+              check_errors: bool = True, auth_message: Callable[[str], str] | None = None) -> dict:
+        """POST a la API de Mouser.
+
+        - `retry=False`: no reintenta si el pedido pudo llegar a Mouser (corte, error 5xx), para no
+          duplicar ítems en un carro. Sí reintenta los rechazos por límite de consultas.
+        - `check_errors=False`: devuelve la respuesta aunque traiga "Errors" (salvo clave inválida o
+          límite de consultas), para informar el detalle sin perder lo que Mouser sí hizo.
+        """
+        auth_message = auth_message or _auth_message
         if not self.api_key:
             raise MouserAuthError("No hay API key configurada. Ingrésela en Configuración.")
-        url = f"{API_BASE}/{path}?apiKey={urllib.parse.quote(self.api_key)}"
+        url = f"{base}/{path}?apiKey={urllib.parse.quote(self.api_key)}"
+        for name, value in (query or {}).items():
+            if value:
+                url += f"&{name}={urllib.parse.quote(str(value))}"
         data = json.dumps(body).encode("utf-8")
         attempt = 0
         while True:
@@ -154,7 +174,7 @@ class MouserClient:
             except urllib.error.HTTPError as exc:
                 detail = _read_error_body(exc)
                 if exc.code in (401, 403) and not _looks_like_rate_limit(detail):
-                    raise MouserAuthError(_auth_message(detail)) from exc
+                    raise MouserAuthError(auth_message(detail)) from exc
                 if exc.code == 429 or _looks_like_rate_limit(detail):
                     if _looks_like_daily_limit(detail):
                         raise MouserRateLimitError(
@@ -166,7 +186,7 @@ class MouserClient:
                         continue
                     raise MouserRateLimitError(
                         "Mouser rechazó la consulta por exceso de solicitudes por minuto.") from exc
-                if exc.code >= 500 and attempt < self.max_retries:
+                if exc.code >= 500 and retry and attempt < self.max_retries:
                     attempt += 1
                     _sleep_cancellable(self._sleep, 2.0 * attempt, cancel)
                     continue
@@ -177,7 +197,7 @@ class MouserClient:
                     raise MouserConnectionError(
                         f"El proxy o firewall de la red bloqueó la conexión a api.mouser.com "
                         f"({reason}). Pida que se permita ese dominio.") from exc
-                if attempt < self.max_retries:
+                if retry and attempt < self.max_retries:
                     attempt += 1
                     _sleep_cancellable(self._sleep, 2.0 * attempt, cancel)
                     continue
@@ -189,11 +209,9 @@ class MouserClient:
 
             errors = result.get("Errors") or []
             if errors:
-                message = "; ".join(
-                    str(e.get("Message") or e.get("Code") or e) for e in errors if e
-                ) or "Error desconocido"
+                message = "; ".join(error_messages(errors)) or "Error desconocido"
                 if _looks_like_auth_error(errors):
-                    raise MouserAuthError(_auth_message(message))
+                    raise MouserAuthError(auth_message(message))
                 if _looks_like_rate_limit(message):
                     if _looks_like_daily_limit(message):
                         raise MouserRateLimitError(
@@ -203,7 +221,8 @@ class MouserClient:
                         _sleep_cancellable(self._sleep, 60.0, cancel)
                         continue
                     raise MouserRateLimitError(message)
-                raise MouserError(f"Mouser informó un error: {message}")
+                if check_errors:
+                    raise MouserError(f"Mouser informó un error: {message}")
             return result
 
     # --- Búsquedas --------------------------------------------------------
@@ -247,6 +266,57 @@ class MouserClient:
         currency = next((p.currency for p in parts if p.currency), "")
         suffix = f" Moneda de la cuenta: {currency}." if currency else ""
         return f"Conexión correcta con la API de Mouser.{suffix}"
+
+    # --- Cart API ----------------------------------------------------------
+
+    def cart_insert(self, lines: list[CartLine], cart_key: str = "",
+                    progress: Callable[[int, int, str], None] | None = None,
+                    cancel: threading.Event | None = None) -> CartResult:
+        """Crea un carro nuevo en Mouser (o agrega a `cart_key`) con las líneas indicadas.
+
+        Usa solo POST /cart/items/insert: nunca envía un pedido. Envía lotes de hasta 100 ítems;
+        el primero crea el carro y los siguientes se agregan a la misma CartKey. Si un lote
+        posterior falla, devuelve lo creado hasta ese momento con el error y las líneas pendientes.
+        """
+        lines = merge_lines(lines)
+        if not lines:
+            raise MouserError("No hay partes con código Mouser y cantidad para agregar al carro.")
+        if len(lines) > MAX_CART_ITEMS:
+            raise MouserError(f"Un carro de Mouser admite hasta {MAX_CART_ITEMS} ítems y la cotización "
+                              f"tiene {len(lines)}. Divida el BOM en partes.")
+        result = CartResult(cart_key=cart_key.strip(), requested=list(lines))
+        found: dict[str, CartItemResult] = {}
+        batches = list(chunks(lines, MAX_CART_ITEMS_PER_REQUEST))
+        for index, batch in enumerate(batches):
+            if progress:
+                step = f" (lote {index + 1} de {len(batches)})" if len(batches) > 1 else ""
+                progress(index, len(batches), f"Creando el carro en Mouser{step}…")
+            body = {"CartKey": result.cart_key, "CartItems": [line.to_api() for line in batch]}
+            try:
+                data = self._post("cart/items/insert", body, cancel, base=CART_API_BASE, retry=False,
+                                  check_errors=False, auth_message=_cart_auth_message)
+            except MouserError as exc:
+                if not result.cart_key:
+                    raise
+                result.errors.append(f"No se pudieron agregar {sum(len(b) for b in batches[index:])} ítems: {exc}")
+                result.pending = [line for b in batches[index:] for line in b]
+                break
+            result.cart_key = str(data.get("CartKey") or result.cart_key or "")
+            result.currency = str(data.get("CurrencyCode") or result.currency or "")
+            result.errors.extend(error_messages(data.get("Errors")))
+            for raw in data.get("CartItems") or []:
+                if isinstance(raw, dict):
+                    item = CartItemResult.from_api(raw, result.currency)
+                    found[normalize_pn(item.mouser_pn)] = item  # la respuesta puede traer el carro completo
+            if not result.cart_key:  # sin clave, otro lote crearía un segundo carro: se detiene aquí
+                result.pending = [line for b in batches[index + 1:] for line in b]
+                break
+        result.items = list(found.values())
+        if not result.cart_key and not result.errors:
+            result.errors.append("Mouser no devolvió la clave del carro (CartKey).")
+        if progress:
+            progress(len(batches), len(batches), "Carro creado")
+        return result
 
     # --- Búsqueda de un BOM completo -------------------------------------
 
@@ -368,6 +438,22 @@ def _rank_suggestions(query: str, parts: list[Part]) -> list[Part]:
     return sorted(parts, key=score)
 
 
+def error_messages(errors: object) -> list[str]:
+    """Textos de la lista "Errors" de una respuesta de Mouser."""
+    messages = []
+    for e in errors if isinstance(errors, list) else []:
+        if isinstance(e, dict):
+            text = str(e.get("Message") or e.get("Code") or "").strip()
+            field_name = str(e.get("PropertyName") or "").strip()
+            if text and field_name and field_name.lower() not in text.lower():
+                text = f"{text} ({field_name})"
+        else:
+            text = str(e).strip()
+        if text:
+            messages.append(text)
+    return messages
+
+
 def _read_error_body(exc: urllib.error.HTTPError) -> str:
     try:
         raw = exc.read().decode("utf-8", "replace")
@@ -379,7 +465,7 @@ def _read_error_body(exc: urllib.error.HTTPError) -> str:
         return raw.strip()[:300]
     errors = data.get("Errors") if isinstance(data, dict) else None
     if errors:
-        return "; ".join(str(e.get("Message") or e.get("Code") or e) for e in errors if e)
+        return "; ".join(error_messages(errors))
     if isinstance(data, dict) and data.get("Message"):
         return str(data["Message"])
     return raw.strip()[:300]
@@ -398,8 +484,11 @@ def _looks_like_auth_error(errors: list) -> bool:
 
 def _looks_like_rate_limit(text: str) -> bool:
     lowered = (text or "").lower()
-    return any(word in lowered for word in ("too many", "toomany", "rate limit", "exceeded",
-                                            "maximum calls", "max calls", "quota"))
+    if any(word in lowered for word in ("too many", "toomany", "rate limit", "ratelimit", "quota",
+                                        "maximum calls", "max calls")):
+        return True
+    # «exceeded» solo cuenta si habla de consultas (no, p. ej., del máximo de ítems de un carro)
+    return "exceed" in lowered and any(word in lowered for word in ("call", "request", "per minute", "per day"))
 
 
 def _looks_like_daily_limit(text: str) -> bool:
@@ -410,4 +499,10 @@ def _looks_like_daily_limit(text: str) -> bool:
 def _auth_message(detail: str) -> str:
     base = ("Mouser rechazó la API key. Para precios y stock se necesita la clave de la "
             "Search API (en My Mouser → APIs es distinta de la clave de Cart/Order API).")
+    return f"{base} Detalle: {detail}" if detail else base
+
+
+def _cart_auth_message(detail: str) -> str:
+    base = ("Mouser rechazó la clave de la Cart API. Revise en My Mouser → APIs que la clave de "
+            "Cart/Order API esté autorizada (es distinta de la clave de la Search API).")
     return f"{base} Detalle: {detail}" if detail else base

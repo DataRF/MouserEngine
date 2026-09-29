@@ -68,3 +68,12 @@ def fmt_price(value: object, currency: str = "") -> str:
         return ""
     text = fmt_num(value, 2, 5)
     return f"{currency} {text}".strip()
+
+
+def fmt_board_cost(value: object, currency: str = "") -> str:
+    """Costo por placa: 2 decimales; hasta 4 si es menor que 1 (placas con pocos pasivos)."""
+    if value is None or value == "":
+        return ""
+    number = value if isinstance(value, Decimal) else Decimal(str(value))
+    text = fmt_num(number, 2, 2 if abs(number) >= 1 else 4)
+    return f"{currency} {text}".strip()

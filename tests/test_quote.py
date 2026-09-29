@@ -5,6 +5,8 @@ import pytest
 from mouser_engine.bom import build_items, load_table
 from mouser_engine.models import BomItem, Part, PriceBreak, QuoteParams
 from mouser_engine.mouser_api import LookupResult
+from mouser_engine.lookup import lookup_all
+from mouser_engine.passives import Defaults
 from mouser_engine.quote import (
     apply_lookup,
     queries_for,
@@ -12,6 +14,7 @@ from mouser_engine.quote import (
     quote_item,
     required_qty,
     select_part,
+    specs_for,
     summarize,
 )
 
@@ -32,7 +35,9 @@ def item(**kwargs):
 @pytest.fixture
 def quoted(client, example_bom):
     items, _ = build_items(load_table(example_bom))
-    apply_lookup(items, client.lookup(queries_for(items)))
+    specs, required = specs_for(items, QuoteParams(boards=10))
+    bundle = lookup_all(client, queries_for(items), specs, Defaults(), required)
+    apply_lookup(items, bundle.parts, spec_results=bundle.specs)
     return items
 
 
@@ -87,7 +92,7 @@ def test_statuses_in_example(quoted):
     assert by_mpn["BAT54S,215"].status == "Mínimo de compra alto"
     assert by_mpn["BAT54S,215"].buy_qty == 3000
     assert by_mpn["XYZ-NOTREAL-1"].status == "No encontrado"
-    assert by_mpn["row15"].status == "Sin N° de parte"
+    assert by_mpn["row15"].status == "OK · automática"
     assert by_mpn["row16"].level == "excluded"
 
 
@@ -113,7 +118,7 @@ def test_summary_and_additional_costs(quoted):
     s = summarize(quoted, quotes, params)
     assert s.currency == "USD"
     assert s.items == 12 and s.excluded == 1 and s.included == 11
-    assert s.priced == 8 and s.unpriced == 3
+    assert s.priced == 9 and s.unpriced == 2
     assert s.ok + s.warn + s.error + s.pending == 11
     assert s.goods == sum(q.ext_price for q in quotes if q.ext_price is not None and q.level != "excluded")
     base = s.goods + Decimal("40")

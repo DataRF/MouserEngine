@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+from typing import Callable
 
 from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QFont
@@ -20,10 +21,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..formatting import fmt_int, fmt_money, fmt_price
+from ..formatting import fmt_int, fmt_money, fmt_num, fmt_price
 from ..models import BomItem, ItemQuote, Part, lead_time_label, packaging_label
 from ..pricing import price_for_qty, purchase_qty
-from ..quote import rank_options
+from ..quote import rank_options, rank_spec_options
 from ..utils import normalize_pn
 from .theme import STATUS_COLOR
 
@@ -41,11 +42,15 @@ class DetailPanel(QTabWidget):
     OPTION_COLUMNS = ["", "Origen", "N° Mouser", "MPN", "Fabricante", "Empaque", "Stock", "Mín / Múlt",
                       "Precio unit.", "Total", "Ciclo de vida"]
 
+    HISTORY_COLUMNS = ["Consultado", "BOM", "Cantidad", "Precio unit.", "Total", "Stock en Mouser", "Variación"]
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.item: BomItem | None = None
         self.quote: ItemQuote | None = None
         self._options: list[Part] = []
+        # (parte, ítem) -> precios guardados en el historial; lo asigna la ventana principal
+        self.history_provider: Callable[[Part | None, BomItem | None], list] | None = None
 
         self.info = QTextBrowser()
         self.info.setOpenExternalLinks(True)
@@ -92,6 +97,24 @@ class DetailPanel(QTabWidget):
         options_layout.addLayout(buttons)
         self.addTab(options_page, "Opciones en Mouser")
         self.options.itemSelectionChanged.connect(self._update_buttons)
+
+        history_page = QWidget()
+        history_layout = QVBoxLayout(history_page)
+        history_layout.setContentsMargins(6, 6, 6, 6)
+        self.history_hint = QLabel("")
+        self.history_hint.setObjectName("Hint")
+        self.history_hint.setWordWrap(True)
+        history_layout.addWidget(self.history_hint)
+        self.history_table = QTableWidget(0, len(self.HISTORY_COLUMNS))
+        self.history_table.setHorizontalHeaderLabels(self.HISTORY_COLUMNS)
+        self.history_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.history_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.history_table.verticalHeader().setVisible(False)
+        self.history_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        history_layout.addWidget(self.history_table, 1)
+        self.history_page = history_page
+        self.addTab(history_page, "Historial de precios")
+        self.currentChanged.connect(lambda *_: self.refresh_history())
         self.show_item(None, None)
 
     # --- contenido --------------------------------------------------------------
@@ -102,6 +125,55 @@ class DetailPanel(QTabWidget):
         self._render_breaks()
         self._render_options()
         self._update_buttons()
+        self.refresh_history()
+
+    def refresh_history(self) -> None:
+        """Precios guardados de la parte elegida (solo se consulta si la pestaña está a la vista)."""
+        if self.currentWidget() is not self.history_page:
+            return
+        item, q = self.item, self.quote
+        part = q.part if q else None
+        records = self.history_provider(part, item) if (self.history_provider and item is not None) else []
+        self.history_table.setRowCount(len(records))
+        for r, record in enumerate(records):
+            older = records[r + 1] if r + 1 < len(records) else None
+            change = ""
+            color = None
+            if older is not None and older.unit_price and record.unit_price is not None:
+                pct = (record.unit_price - older.unit_price) / older.unit_price * 100
+                if abs(pct) >= 0.05:
+                    change = f"{'▲ +' if pct > 0 else '▼ '}{fmt_num(pct, 1)} %"
+                    color = "#CF222E" if pct > 0 else "#1A7F37"
+            values = [
+                record.when.strftime("%d-%m-%Y %H:%M"),
+                record.bom_name or "—",
+                fmt_int(record.buy_qty),
+                fmt_price(record.unit_price, record.currency) if record.unit_price is not None else "—",
+                fmt_money(record.unit_price * record.buy_qty, record.currency)
+                if record.unit_price is not None else "—",
+                fmt_int(record.stock) if record.stock is not None else "—",
+                change,
+            ]
+            for c, value in enumerate(values):
+                cell = QTableWidgetItem(value)
+                if c >= 2:
+                    cell.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                if c == 6 and color:
+                    cell.setForeground(QColor(color))
+                if c == 1 and record.client:
+                    cell.setToolTip(f"Cliente: {record.client}")
+                self.history_table.setItem(r, c, cell)
+        if item is None:
+            hint = "Seleccione una parte para ver cómo cambió su precio en las cotizaciones guardadas."
+        elif not records:
+            hint = ("Esta parte todavía no aparece en el historial. Los precios se registran al guardar la "
+                    "cotización (Ctrl+S), al exportarla a Excel o al crear el carro en Mouser.")
+        else:
+            name = part.mouser_pn if part else (item.mouser_pn or item.mpn)
+            hint = (f"{len(records)} {'registro' if len(records) == 1 else 'registros'} de {name} en cotizaciones "
+                    "guardadas, del más reciente al más antiguo. «Variación»: cambio del precio unitario respecto "
+                    "del registro anterior (puede deberse también a otra cantidad o tramo).")
+        self.history_hint.setText(hint)
 
     def _render_info(self) -> None:
         item, q = self.item, self.quote
@@ -136,6 +208,17 @@ class DetailPanel(QTabWidget):
                 ("Precio unitario", fmt_price(q.unit_price, currency) if q.unit_price is not None else "—"),
                 ("Total línea", fmt_money(q.ext_price, currency) if q.ext_price is not None else "—"),
             ]
+        if item.spec is not None and not item.mpn and not item.mouser_pn:
+            spec_text = item.spec.label()
+            if item.spec.missing:
+                spec_text += " (falta " + ", ".join(item.spec.missing) + ")"
+            rows.append(("Especificación del BOM", spec_text))
+            report = item.spec_report or {}
+            if report.get("searches") or report.get("constructed"):
+                searched = ", ".join(f"«{kw}»" for kw in report.get("searches", []))
+                if report.get("constructed"):
+                    searched += (" y " if searched else "") + f"{report['constructed']} números de parte de series comunes"
+                rows.append(("Búsqueda en Mouser", searched))
         rows += [
             ("Líneas del BOM", item.rows_label),
             ("Designadores", item.designators),
@@ -220,11 +303,12 @@ class DetailPanel(QTabWidget):
         for part in item.near:
             origin[part.key] = "Aproximada"
         for part in item.candidates:
-            origin[part.key] = "Exacta"
+            origin[part.key] = "Cumple" if item.by_spec else "Exacta"
         if item.manual_part is not None:
             origin.setdefault(item.manual_part.key, "Búsqueda")
-        exact = rank_options([p for p in item.options() if origin.get(p.key) in ("Exacta", "Aproximada", "Búsqueda")],
-                             required)
+        ranker = rank_spec_options if item.by_spec else rank_options
+        exact = ranker([p for p in item.options()
+                        if origin.get(p.key) in ("Exacta", "Cumple", "Aproximada", "Búsqueda")], required)
         others = rank_options([p for p in item.options() if origin.get(p.key) == "Sugerencia"], required)
         self._options = exact + others
         current_key = q.part.key if q and q.part else None
@@ -258,12 +342,20 @@ class DetailPanel(QTabWidget):
         self.options.resizeColumnsToContents()
         manual = item.manual_part is not None
         if not self._options:
-            if item.lookup_state == "noquery":
+            if item.by_spec and item.spec.complete and item.lookup_state == "done":
+                hint = (f"Ninguna opción en Mouser cumple «{item.spec.label()}». "
+                        "Use «Buscar en Mouser…» para elegir una manualmente.")
+            elif item.lookup_state == "noquery":
                 hint = "Esta línea no tiene número de parte. Use «Buscar en Mouser…» para asignarle una."
             elif item.lookup_state == "pending":
                 hint = "Todavía no se consulta en Mouser."
             else:
                 hint = "No hay opciones en Mouser para este número de parte. Pruebe «Buscar en Mouser…»."
+        elif item.by_spec:
+            hint = (f"{len(self._options)} opciones cumplen «{item.spec.label()}». Orden: stock suficiente, "
+                    f"fabricante reconocido y menor costo para {fmt_int(required)} unidades. "
+                    + ("La opción actual fue elegida manualmente." if manual
+                       else "La marcada con ● es la elegida automáticamente."))
         else:
             hint = (f"{len(self._options)} opciones en Mouser. El costo se calcula para {fmt_int(required)} unidades. "
                     + ("La opción actual fue elegida manualmente." if manual

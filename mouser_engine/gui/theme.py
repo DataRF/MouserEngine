@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication, QStyleFactory
 
@@ -13,6 +15,14 @@ MUTED = "#59636E"
 BORDER = "#D1D9E0"
 SURFACE = "#FFFFFF"
 WINDOW = "#F3F5F8"
+INDICATOR_BORDER = "#8C959F"
+ASSETS = Path(__file__).resolve().parents[1] / "assets"
+
+# Gráficos: paleta categórica validada (azul / naranja) y cromo neutro.
+SERIES_1 = "#2A78D6"   # costo por placa
+SERIES_2 = "#EB6834"   # costo total
+GRIDLINE = "#E6EAEF"
+AXIS = "#C9D1D9"
 
 # Fondo de fila y color del indicador de estado.
 ROW_BACKGROUND = {
@@ -30,7 +40,7 @@ STATUS_COLOR = {
     LEVEL_PENDING: "#6E7781",
 }
 
-STYLESHEET = f"""
+_BASE_STYLESHEET = f"""
 QMainWindow, QDialog {{ background: {WINDOW}; }}
 QToolBar {{ background: {SURFACE}; border: none; border-bottom: 1px solid {BORDER}; padding: 4px; spacing: 4px; }}
 QToolBar QToolButton {{ padding: 5px 9px; border-radius: 6px; color: {TEXT}; }}
@@ -64,7 +74,30 @@ QPushButton#Primary:disabled {{ background: #9DB7D8; border-color: #9DB7D8; }}
 QStatusBar {{ background: {SURFACE}; border-top: 1px solid {BORDER}; }}
 QTextBrowser {{ border: none; background: {SURFACE}; }}
 QFrame#DropZone {{ background: {SURFACE}; border: 2px dashed #AFC2D8; border-radius: 12px; }}
+QCheckBox {{ spacing: 7px; }}
 """
+
+
+def _indicator_stylesheet() -> str:
+    """Casillas dibujadas explícitamente: en Windows el borde de Fusion puede quedar invisible."""
+    check = (ASSETS / "check.png").as_posix()
+    rules = []
+    for selector in ("QCheckBox::indicator", "QTableView::indicator", "QTableWidget::indicator"):
+        rules.append(f"""
+{selector} {{ width: 14px; height: 14px; border: 1px solid {INDICATOR_BORDER}; border-radius: 3px;
+    background: {SURFACE}; }}
+{selector}:hover {{ border-color: {ACCENT}; }}
+{selector}:checked {{ background: {ACCENT}; border-color: {ACCENT}; image: url("{check}"); }}
+{selector}:disabled {{ background: #EEF1F4; border-color: #C9D1D9; }}
+{selector}:checked:disabled {{ background: #9DB7D8; border-color: #9DB7D8; }}""")
+    return "".join(rules)
+
+
+def build_stylesheet() -> str:
+    return _BASE_STYLESHEET + _indicator_stylesheet()
+
+
+STYLESHEET = build_stylesheet()
 
 
 def apply_theme(app: QApplication) -> None:

@@ -82,11 +82,29 @@ def write_ico(path: Path, sizes: list[int]) -> None:
     path.write_bytes(header + entries + payload)
 
 
+def draw_check(size: int = 32) -> QImage:
+    """Marca de verificación blanca para las casillas (se dibuja sobre el color de acento)."""
+    image = QImage(size, size, QImage.Format_ARGB32)
+    image.fill(Qt.transparent)
+    p = QPainter(image)
+    p.setRenderHint(QPainter.Antialiasing)
+    pen = QPen(QColor("#FFFFFF"))
+    pen.setWidthF(size * 0.14)
+    pen.setCapStyle(Qt.RoundCap)
+    pen.setJoinStyle(Qt.RoundJoin)
+    p.setPen(pen)
+    s = size / 32.0
+    p.drawPolyline([QPointF(7.5 * s, 16.5 * s), QPointF(13.5 * s, 22.5 * s), QPointF(24.5 * s, 10 * s)])
+    p.end()
+    return image
+
+
 def main() -> int:
     QGuiApplication(sys.argv)
     OUT.mkdir(parents=True, exist_ok=True)
     draw(256).save(str(OUT / "icon.png"))
     write_ico(OUT / "icon.ico", [16, 24, 32, 48, 64, 128, 256])
+    draw_check(32).save(str(OUT / "check.png"))
     print(f"Íconos generados en {OUT}")
     return 0
 

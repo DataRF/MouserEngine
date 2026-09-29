@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import html
+import os
 from pathlib import Path
 from typing import Callable
 
@@ -22,17 +24,21 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QDoubleSpinBox,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QVBoxLayout,
+    QWidget,
 )
 
 from ..bom import FIELD_LABELS, FIELDS, BomError, BomTable, build_items, set_header_row, switch_sheet
-from ..config import ENV_API_KEY, Settings, config_dir
+from ..config import ENV_API_KEY, ENV_CART_API_KEY, Settings, config_dir
 from ..formatting import fmt_int, fmt_money, fmt_price
 from ..models import BomItem, Part, packaging_label
 from ..mouser_api import DAILY_LIMIT, MouserClient
+from ..passives import RECOGNIZED_MANUFACTURERS
 from ..pricing import price_for_qty, purchase_qty
 from ..quote import rank_options
 from .workers import Worker, WorkerPool
@@ -50,79 +56,24 @@ def _column_letter(index: int) -> str:
 # --- Configuración -------------------------------------------------------------
 
 class SettingsDialog(QDialog):
+    """Configuración en pestañas: claves de API, consulta, pasivos sin MPN y empresa."""
+
     def __init__(self, settings: Settings, client_factory: Callable[[str], MouserClient],
                  workers: WorkerPool, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Configuración")
-        self.setMinimumWidth(560)
+        self.setMinimumWidth(600)
         self.settings = settings
         self.client_factory = client_factory
         self.workers = workers
 
         layout = QVBoxLayout(self)
-
-        api_box = QGroupBox("API de Mouser")
-        api_layout = QVBoxLayout(api_box)
-        info = QLabel(
-            "Use la clave de la <b>Search API</b> (My Mouser → APIs). Se guarda solo en este "
-            f"computador, en:<br><code>{config_dir() / 'config.json'}</code>")
-        info.setWordWrap(True)
-        info.setObjectName("Hint")
-        api_layout.addWidget(info)
-        key_row = QHBoxLayout()
-        self.key_edit = QLineEdit(settings.api_key)
-        self.key_edit.setEchoMode(QLineEdit.Password)
-        self.key_edit.setPlaceholderText("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
-        self.show_key = QCheckBox("Mostrar")
-        self.show_key.toggled.connect(
-            lambda on: self.key_edit.setEchoMode(QLineEdit.Normal if on else QLineEdit.Password))
-        key_row.addWidget(QLabel("API key:"))
-        key_row.addWidget(self.key_edit, 1)
-        key_row.addWidget(self.show_key)
-        api_layout.addLayout(key_row)
-        if settings.api_key_from_env:
-            env_note = QLabel(f"Se está usando la variable de entorno {ENV_API_KEY}, que tiene prioridad.")
-            env_note.setObjectName("Hint")
-            api_layout.addWidget(env_note)
-        test_row = QHBoxLayout()
-        self.test_button = QPushButton("Probar conexión")
-        self.test_button.clicked.connect(self._test)
-        self.test_label = QLabel("")
-        self.test_label.setWordWrap(True)
-        test_row.addWidget(self.test_button)
-        test_row.addWidget(self.test_label, 1)
-        api_layout.addLayout(test_row)
-        usage = QLabel(f"Consultas realizadas hoy: {fmt_int(settings.calls_today)} de {fmt_int(DAILY_LIMIT)} "
-                       "(límite diario de Mouser).")
-        usage.setObjectName("Hint")
-        api_layout.addWidget(usage)
-        layout.addWidget(api_box)
-
-        options = QGroupBox("Opciones de consulta")
-        form = QFormLayout(options)
-        self.batch = QSpinBox()
-        self.batch.setRange(1, 10)
-        self.batch.setValue(settings.batch_size)
-        self.batch.setToolTip("Partes por consulta (Mouser permite hasta 10). Menos = más consultas.")
-        form.addRow("Partes por consulta:", self.batch)
-        self.timeout = QSpinBox()
-        self.timeout.setRange(5, 120)
-        self.timeout.setSuffix(" s")
-        self.timeout.setValue(settings.timeout)
-        form.addRow("Tiempo máximo de espera:", self.timeout)
-        self.auto_refresh = QSpinBox()
-        self.auto_refresh.setRange(0, 1440)
-        self.auto_refresh.setSuffix(" min")
-        self.auto_refresh.setSpecialValueText("Desactivada")
-        self.auto_refresh.setValue(settings.auto_refresh_minutes)
-        form.addRow("Actualización automática:", self.auto_refresh)
-        self.auto_query = QCheckBox("Consultar precios al abrir un BOM")
-        self.auto_query.setChecked(settings.auto_query_on_load)
-        form.addRow("", self.auto_query)
-        self.fuzzy = QCheckBox("Buscar sugerencias para partes no encontradas")
-        self.fuzzy.setChecked(settings.fuzzy_search)
-        form.addRow("", self.fuzzy)
-        layout.addWidget(options)
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self._build_api_tab(), "API de Mouser")
+        self.tabs.addTab(self._build_query_tab(), "Consulta")
+        self.tabs.addTab(self._build_passives_tab(), "Pasivos sin MPN")
+        self.tabs.addTab(self._build_company_tab(), "Empresa")
+        layout.addWidget(self.tabs)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         buttons.button(QDialogButtonBox.Save).setText("Guardar")
@@ -130,6 +81,152 @@ class SettingsDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    # --- pestañas ----------------------------------------------------------------
+
+    @staticmethod
+    def _hint(text: str) -> QLabel:
+        label = QLabel(text)
+        label.setObjectName("Hint")
+        label.setWordWrap(True)
+        return label
+
+    @staticmethod
+    def _key_row(edit: QLineEdit) -> QHBoxLayout:
+        row = QHBoxLayout()
+        edit.setEchoMode(QLineEdit.Password)
+        edit.setPlaceholderText("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
+        show = QCheckBox("Mostrar")
+        show.toggled.connect(lambda on: edit.setEchoMode(QLineEdit.Normal if on else QLineEdit.Password))
+        row.addWidget(QLabel("API key:"))
+        row.addWidget(edit, 1)
+        row.addWidget(show)
+        return row
+
+    def _build_api_tab(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+
+        search = QGroupBox("Search API · precios y stock")
+        search_layout = QVBoxLayout(search)
+        search_layout.addWidget(self._hint(
+            "Clave de la <b>Search API</b> (My Mouser → APIs → «Buscar API»). Se guarda solo en este "
+            f"computador, en:<br><code>{config_dir() / 'config.json'}</code>"))
+        self.key_edit = QLineEdit(self.settings.api_key)
+        search_layout.addLayout(self._key_row(self.key_edit))
+        if self.settings.api_key_from_env:
+            search_layout.addWidget(self._hint(
+                f"Se está usando la variable de entorno {ENV_API_KEY}, que tiene prioridad."))
+        test_row = QHBoxLayout()
+        self.test_button = QPushButton("Probar conexión")
+        self.test_button.clicked.connect(self._test)
+        test_row.addWidget(self.test_button)
+        test_row.addStretch(1)
+        search_layout.addLayout(test_row)
+        self.test_label = QLabel("")
+        self.test_label.setWordWrap(True)
+        self.test_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.test_label.setMinimumHeight(self.test_label.fontMetrics().lineSpacing() * 4 + 6)
+        self.test_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        search_layout.addWidget(self.test_label)
+        search_layout.addWidget(self._hint(
+            f"Consultas realizadas hoy: {fmt_int(self.settings.calls_today)} de {fmt_int(DAILY_LIMIT)} "
+            "(límite diario de Mouser)."))
+        layout.addWidget(search)
+
+        cart = QGroupBox("Cart API · crear el carro en Mouser")
+        cart_layout = QVBoxLayout(cart)
+        cart_layout.addWidget(self._hint(
+            "Clave de <b>Cart/Order API</b> (My Mouser → APIs). Mouser la autoriza por separado: "
+            "mientras aparezca como «Pendiente», crear el carro no funcionará. La aplicación solo crea "
+            "el carro; nunca emite pedidos."))
+        self.cart_key_edit = QLineEdit(self.settings.cart_api_key)
+        cart_layout.addLayout(self._key_row(self.cart_key_edit))
+        if os.environ.get(ENV_CART_API_KEY, "").strip():
+            cart_layout.addWidget(self._hint(
+                f"Se está usando la variable de entorno {ENV_CART_API_KEY}, que tiene prioridad."))
+        layout.addWidget(cart)
+        layout.addStretch(1)
+        return page
+
+    def _build_query_tab(self) -> QWidget:
+        page = QWidget()
+        form = QFormLayout(page)
+        self.batch = QSpinBox()
+        self.batch.setRange(1, 10)
+        self.batch.setValue(self.settings.batch_size)
+        self.batch.setToolTip("Partes por consulta (Mouser permite hasta 10). Menos = más consultas.")
+        form.addRow("Partes por consulta:", self.batch)
+        self.timeout = QSpinBox()
+        self.timeout.setRange(5, 120)
+        self.timeout.setSuffix(" s")
+        self.timeout.setValue(self.settings.timeout)
+        form.addRow("Tiempo máximo de espera:", self.timeout)
+        self.auto_refresh = QSpinBox()
+        self.auto_refresh.setRange(0, 1440)
+        self.auto_refresh.setSuffix(" min")
+        self.auto_refresh.setSpecialValueText("Desactivada")
+        self.auto_refresh.setValue(self.settings.auto_refresh_minutes)
+        form.addRow("Actualización automática:", self.auto_refresh)
+        self.auto_query = QCheckBox("Consultar precios al abrir un BOM")
+        self.auto_query.setChecked(self.settings.auto_query_on_load)
+        form.addRow("", self.auto_query)
+        self.fuzzy = QCheckBox("Buscar sugerencias para partes no encontradas")
+        self.fuzzy.setChecked(self.settings.fuzzy_search)
+        form.addRow("", self.fuzzy)
+        return page
+
+    def _build_passives_tab(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        self.passives_check = QCheckBox("Elegir automáticamente resistencias y condensadores sin MPN")
+        self.passives_check.setChecked(self.settings.passives_enabled)
+        layout.addWidget(self.passives_check)
+        layout.addWidget(self._hint(
+            "La aplicación lee del BOM el valor, encapsulado, tolerancia, potencia, tensión y dieléctrico, "
+            "busca en Mouser y elige la opción más conveniente que cumpla o supere cada especificación, "
+            "prefiriendo fabricantes reconocidos. Cuando el BOM no indica un dato se usan estos valores:"))
+        form = QFormLayout()
+        self.res_tol = QDoubleSpinBox()
+        self.res_tol.setRange(0.01, 20)
+        self.res_tol.setDecimals(2)
+        self.res_tol.setSuffix(" %")
+        self.res_tol.setValue(self.settings.res_tolerance_default)
+        form.addRow("Tolerancia máxima de resistencias:", self.res_tol)
+        self.cap_tol = QDoubleSpinBox()
+        self.cap_tol.setRange(0.1, 80)
+        self.cap_tol.setDecimals(1)
+        self.cap_tol.setSuffix(" %")
+        self.cap_tol.setValue(self.settings.cap_tolerance_default)
+        form.addRow("Tolerancia máxima de condensadores:", self.cap_tol)
+        self.cap_volt = QDoubleSpinBox()
+        self.cap_volt.setRange(2.5, 1000)
+        self.cap_volt.setDecimals(1)
+        self.cap_volt.setSuffix(" V")
+        self.cap_volt.setValue(self.settings.cap_voltage_default)
+        form.addRow("Tensión mínima de condensadores:", self.cap_volt)
+        layout.addLayout(form)
+        layout.addWidget(self._hint(
+            "Fabricantes reconocidos: " + ", ".join(RECOGNIZED_MANUFACTURERS) + "."))
+        layout.addStretch(1)
+        return page
+
+    def _build_company_tab(self) -> QWidget:
+        page = QWidget()
+        form = QFormLayout(page)
+        self.company_edit = QLineEdit(self.settings.company_name)
+        form.addRow("Razón social:", self.company_edit)
+        form.addRow("", self._hint("Se usa en el Excel exportado y en la orden de compra interna."))
+        return page
+
+    # --- acciones -----------------------------------------------------------------
+
+    def _fit_height(self) -> None:
+        layout = self.layout()
+        layout.activate()
+        needed = layout.totalSizeHint().height()
+        if needed > self.height():
+            self.resize(self.width(), needed)
 
     def _test(self) -> None:
         key = self.key_edit.text().strip() or self.settings.effective_api_key
@@ -146,18 +243,26 @@ class SettingsDialog(QDialog):
         self.workers.start(worker)
 
     def _test_ok(self, message: str) -> None:
-        self.test_label.setText(f"<span style='color:#1A7F37'>✔ {message}</span>")
+        self.test_label.setText(f"<span style='color:#1A7F37'>✔ {html.escape(message)}</span>")
+        self._fit_height()
 
     def _test_failed(self, exc: Exception) -> None:
-        self.test_label.setText(f"<span style='color:#CF222E'>✖ {exc}</span>")
+        self.test_label.setText(f"<span style='color:#CF222E'>✖ {html.escape(str(exc))}</span>")
+        self._fit_height()
 
     def apply(self) -> None:
         self.settings.api_key = self.key_edit.text().strip()
+        self.settings.cart_api_key = self.cart_key_edit.text().strip()
         self.settings.batch_size = self.batch.value()
         self.settings.timeout = self.timeout.value()
         self.settings.auto_refresh_minutes = self.auto_refresh.value()
         self.settings.auto_query_on_load = self.auto_query.isChecked()
         self.settings.fuzzy_search = self.fuzzy.isChecked()
+        self.settings.passives_enabled = self.passives_check.isChecked()
+        self.settings.res_tolerance_default = self.res_tol.value()
+        self.settings.cap_tolerance_default = self.cap_tol.value()
+        self.settings.cap_voltage_default = self.cap_volt.value()
+        self.settings.company_name = self.company_edit.text().strip()
 
 
 # --- Importación de BOM ----------------------------------------------------------

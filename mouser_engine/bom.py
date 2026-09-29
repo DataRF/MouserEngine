@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .models import BomItem, BomLine
+from .passives import parse_spec
 from .utils import clean_cell, normalize_header, normalize_pn, parse_int
 
 FIELDS = ["mpn", "mouser_pn", "manufacturer", "qty", "designators", "description", "value", "footprint"]
@@ -78,7 +79,18 @@ _EXCLUDE = {
     "manufacturer": ("part", "pn", "number", "numero", "codigo"),
     "qty": ("price", "precio", "stock", "moq", "min", "available", "disponible", "cost", "costo"),
     "designators": ("fabricante", "manufacturer", "mfr"),
+    "mouser_pn": ("price", "precio", "stock", "url", "link", "qty", "cantidad", "cost", "costo"),
 }
+
+# Encabezados escritos con "#" que la normalización confundiría (convención de KiCost y otros).
+_RAW_HEADERS = {"manf#": "mpn", "mfr#": "mpn", "mfg#": "mpn", "part#": "mpn", "mpn#": "mpn",
+                "mouser#": "mouser_pn"}
+
+# Columnas no asignadas que igual aportan datos técnicos para resistencias y condensadores.
+_SPEC_HEADER_WORDS = ("tolerance", "tolerancia", "tol", "voltage", "voltaje", "tension", "volt", "rated",
+                      "power", "potencia", "wattage", "watt", "dielectric", "dielectrico", "material",
+                      "tempco", "temperature", "coeficiente", "device", "dispositivo", "size", "tamano",
+                      "rating", "type", "tipo", "tc")
 
 _MOUSER_PN_RE = re.compile(r"^\d{2,3}-[A-Z0-9][A-Z0-9.\-/#+,]*$", re.IGNORECASE)
 _PASSIVE_PREFIXES = {"R", "C", "L", "FB", "RN", "RA"}
@@ -234,7 +246,15 @@ def auto_map(headers: list[str], rows: list[list[str]] | None = None) -> dict[st
     mapping: dict[str, int] = {}
     used: set[int] = set()
 
+    for index, header in enumerate(headers):
+        name = _RAW_HEADERS.get(str(header or "").strip().lower().replace(" ", ""))
+        if name and name not in mapping:
+            mapping[name] = index
+            used.add(index)
+
     for name in FIELDS_BY_PRIORITY:
+        if name in mapping:
+            continue
         for synonym in SYNONYMS[name]:
             idx = next((i for i, h in enumerate(normalized) if i not in used and h == synonym), None)
             if idx is not None:
@@ -278,9 +298,9 @@ def _guess_mouser_column(headers: list[str], rows: list[list[str]], used: set[in
     if not sample:
         return None
     supplier_cols = [i for i, h in enumerate(headers)
-                     if re.fullmatch(r"(supplier|distributor|proveedor|distribuidor)( \d+)?", h)]
+                     if re.fullmatch(r"(supplier|distributor|proveedor|distribuidor|dist)( \d+)?", h)]
     for i, h in enumerate(headers):
-        if i in used or not re.search(r"(supplier|distributor|proveedor|distribuidor)", h):
+        if i in used or not re.search(r"(supplier|distributor|proveedor|distribuidor|\bdist\b|\bdpn\b)", h):
             continue
         if not re.search(r"(part|pn|number|numero|codigo|no\b)", h):
             continue
@@ -384,6 +404,14 @@ def parse_lines(table: BomTable) -> tuple[list[BomLine], list[str]]:
             return ""
         return clean_cell(row[idx])
 
+    mapped = set(mapping.values())
+    headers = table.headers
+    spec_columns = [
+        (i, clean_cell(h)) for i, h in enumerate(headers)
+        if i not in mapped and clean_cell(h) and any(
+            word in normalize_header(h).split() for word in _SPEC_HEADER_WORDS)
+    ]
+
     lines: list[BomLine] = []
     for index in range(table.header_row + 1, len(table.grid)):
         row = table.grid[index]
@@ -399,6 +427,8 @@ def parse_lines(table: BomTable) -> tuple[list[BomLine], list[str]]:
             value=get(row, "value"),
             footprint=get(row, "footprint"),
             raw=list(row),
+            extra={header: clean_cell(row[i]) for i, header in spec_columns
+                   if i < len(row) and clean_cell(row[i])},
         )
         if not (line.mpn or line.mouser_pn or line.designators or line.description or line.value):
             continue
@@ -422,15 +452,24 @@ def parse_lines(table: BomTable) -> tuple[list[BomLine], list[str]]:
 
 
 def consolidate(lines: list[BomLine]) -> list[BomItem]:
-    """Agrupa líneas con el mismo número de parte para cotizarlas como una sola compra."""
+    """Agrupa líneas con el mismo número de parte para cotizarlas como una sola compra.
+
+    Las resistencias y condensadores sin MPN se agrupan por especificación (mismo valor,
+    encapsulado, tolerancia, etc.) para comprarlos juntos y aprovechar los tramos de precio.
+    """
     items: dict[str, BomItem] = {}
     for line in lines:
+        spec = None
+        if not (line.mpn or line.mouser_pn):
+            spec = parse_spec(line.designators, line.value, line.description, line.footprint, line.extra)
         if line.qty <= 0:
             key = f"Z:{line.row}"  # no montar: queda aparte y excluida
         elif line.mouser_pn:
             key = "M:" + normalize_pn(line.mouser_pn)
         elif line.mpn:
             key = "P:" + normalize_pn(line.mpn)
+        elif spec is not None and spec.complete:
+            key = "S:" + spec.key
         else:
             key = f"R:{line.row}"
         item = items.get(key)
@@ -446,6 +485,8 @@ def consolidate(lines: list[BomLine]) -> list[BomItem]:
                 value=line.value,
                 footprint=line.footprint,
                 qty_per_board=line.qty,
+                extra=dict(line.extra),
+                spec=spec,
             )
             continue
         item.rows.append(line.row)
@@ -462,7 +503,7 @@ def consolidate(lines: list[BomLine]) -> list[BomItem]:
         if item.qty_per_board <= 0:
             item.include = False
         if not item.base_query:
-            item.lookup_state = "noquery"
+            item.lookup_state = "pending" if (item.spec is not None and item.spec.complete) else "noquery"
     return result
 
 

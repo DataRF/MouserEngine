@@ -251,6 +251,7 @@ class BomLine:
     footprint: str = ""
     qty: int = 0
     raw: list[str] = field(default_factory=list)
+    extra: dict[str, str] = field(default_factory=dict)  # columnas con datos técnicos (tolerancia, tensión…)
 
 
 @dataclass(eq=False)
@@ -279,6 +280,14 @@ class BomItem:
     suggestions: list[Part] = field(default_factory=list)
     manual_part: Part | None = None
     looked_up_at: datetime | None = None
+    extra: dict[str, str] = field(default_factory=dict)
+    spec: object | None = None  # passives.PassiveSpec para resistencias/condensadores sin MPN
+    spec_report: dict | None = None  # resumen de la búsqueda por especificación
+
+    @property
+    def by_spec(self) -> bool:
+        """Se cotiza por especificación (sin MPN ni código Mouser)."""
+        return self.spec is not None and not (self.mpn or self.mouser_pn)
 
     @property
     def base_query(self) -> str:

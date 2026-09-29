@@ -4,7 +4,7 @@
     "AvailabilityInStock": "1250000",
     "AvailabilityOnOrder": [],
     "DataSheetUrl": "https://example.com/datasheets/grm188.pdf",
-    "Description": "Multilayer Ceramic Capacitors MLCC - SMD/SMT 0.1uF 16V X7R 10% 0603",
+    "Description": "Multilayer Ceramic Capacitors MLCC - SMD/SMT 0.1uF 16V X7R 10% 0603 MLCC",
     "FactoryStock": "0",
     "ImagePath": "",
     "Category": "Multilayer Ceramic Capacitors MLCC - SMD/SMT",
@@ -16,16 +16,45 @@
     "Mult": "1",
     "MouserPartNumber": "81-GRM188R71C104KA1D",
     "ProductAttributes": [
-      {"AttributeName": "Packaging", "AttributeValue": "Reel"},
-      {"AttributeName": "Packaging", "AttributeValue": "Cut Tape"},
-      {"AttributeName": "Packaging", "AttributeValue": "MouseReel"}
+      {
+        "AttributeName": "Packaging",
+        "AttributeValue": "Reel"
+      },
+      {
+        "AttributeName": "Packaging",
+        "AttributeValue": "Cut Tape"
+      },
+      {
+        "AttributeName": "Packaging",
+        "AttributeValue": "MouseReel"
+      }
     ],
     "PriceBreaks": [
-      {"Quantity": 1, "Price": "$0.10", "Currency": "USD"},
-      {"Quantity": 10, "Price": "$0.021", "Currency": "USD"},
-      {"Quantity": 100, "Price": "$0.009", "Currency": "USD"},
-      {"Quantity": 1000, "Price": "$0.005", "Currency": "USD"},
-      {"Quantity": 4000, "Price": "$0.004", "Currency": "USD"}
+      {
+        "Quantity": 1,
+        "Price": "$0.10",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 10,
+        "Price": "$0.021",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 100,
+        "Price": "$0.009",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 1000,
+        "Price": "$0.005",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 4000,
+        "Price": "$0.004",
+        "Currency": "USD"
+      }
     ],
     "AlternatePackagings": null,
     "ProductDetailUrl": "https://www.mouser.com/ProductDetail/81-GRM188R71C104KA1D",
@@ -49,16 +78,42 @@
     "Min": "1",
     "Mult": "1",
     "MouserPartNumber": "603-RC0603FR-0710KL",
-    "ProductAttributes": [{"AttributeName": "Packaging", "AttributeValue": "Cut Tape"}],
+    "ProductAttributes": [
+      {
+        "AttributeName": "Packaging",
+        "AttributeValue": "Cut Tape"
+      }
+    ],
     "PriceBreaks": [
-      {"Quantity": 1, "Price": "$0.10", "Currency": "USD"},
-      {"Quantity": 10, "Price": "$0.012", "Currency": "USD"},
-      {"Quantity": 100, "Price": "$0.004", "Currency": "USD"},
-      {"Quantity": 1000, "Price": "$0.002", "Currency": "USD"},
-      {"Quantity": 5000, "Price": "$0.0012", "Currency": "USD"}
+      {
+        "Quantity": 1,
+        "Price": "$0.10",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 10,
+        "Price": "$0.012",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 100,
+        "Price": "$0.004",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 1000,
+        "Price": "$0.002",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 5000,
+        "Price": "$0.0012",
+        "Currency": "USD"
+      }
     ],
     "ProductDetailUrl": "https://www.mouser.com/ProductDetail/603-RC0603FR-0710KL",
-    "ROHSStatus": "RoHS Compliant"
+    "ROHSStatus": "RoHS Compliant",
+    "Category": "Thick Film Resistors - SMD"
   },
   {
     "Availability": "3120 In Stock",
@@ -73,14 +128,43 @@
     "Min": "1",
     "Mult": "1",
     "MouserPartNumber": "511-STM32F103C8T6",
-    "ProductAttributes": [{"AttributeName": "Packaging", "AttributeValue": "Tray"}],
+    "ProductAttributes": [
+      {
+        "AttributeName": "Packaging",
+        "AttributeValue": "Tray"
+      }
+    ],
     "PriceBreaks": [
-      {"Quantity": 1, "Price": "$7.45", "Currency": "USD"},
-      {"Quantity": 10, "Price": "$6.71", "Currency": "USD"},
-      {"Quantity": 25, "Price": "$6.36", "Currency": "USD"},
-      {"Quantity": 100, "Price": "$5.60", "Currency": "USD"},
-      {"Quantity": 250, "Price": "$5.33", "Currency": "USD"},
-      {"Quantity": 1000, "Price": "$4.82", "Currency": "USD"}
+      {
+        "Quantity": 1,
+        "Price": "$7.45",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 10,
+        "Price": "$6.71",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 25,
+        "Price": "$6.36",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 100,
+        "Price": "$5.60",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 250,
+        "Price": "$5.33",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 1000,
+        "Price": "$4.82",
+        "Currency": "USD"
+      }
     ],
     "ProductDetailUrl": "https://www.mouser.com/ProductDetail/511-STM32F103C8T6",
     "ROHSStatus": "RoHS Compliant"
@@ -88,7 +172,12 @@
   {
     "Availability": "On Order",
     "AvailabilityInStock": null,
-    "AvailabilityOnOrder": [{"Quantity": 2500, "Date": "2026-11-10T00:00:00"}],
+    "AvailabilityOnOrder": [
+      {
+        "Quantity": 2500,
+        "Date": "2026-11-10T00:00:00"
+      }
+    ],
     "DataSheetUrl": "https://example.com/datasheets/lm358.pdf",
     "Description": "Operational Amplifiers - Op Amps Dual Op Amp SOIC-8",
     "FactoryStock": "0",
@@ -99,12 +188,33 @@
     "Min": "1",
     "Mult": "1",
     "MouserPartNumber": "595-LM358DR",
-    "ProductAttributes": [{"AttributeName": "Packaging", "AttributeValue": "Cut Tape"}],
+    "ProductAttributes": [
+      {
+        "AttributeName": "Packaging",
+        "AttributeValue": "Cut Tape"
+      }
+    ],
     "PriceBreaks": [
-      {"Quantity": 1, "Price": "$0.42", "Currency": "USD"},
-      {"Quantity": 10, "Price": "$0.29", "Currency": "USD"},
-      {"Quantity": 100, "Price": "$0.18", "Currency": "USD"},
-      {"Quantity": 2500, "Price": "$0.11", "Currency": "USD"}
+      {
+        "Quantity": 1,
+        "Price": "$0.42",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 10,
+        "Price": "$0.29",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 100,
+        "Price": "$0.18",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 2500,
+        "Price": "$0.11",
+        "Currency": "USD"
+      }
     ],
     "ProductDetailUrl": "https://www.mouser.com/ProductDetail/595-LM358DR",
     "ROHSStatus": "RoHS Compliant"
@@ -120,10 +230,26 @@
     "Mult": "1",
     "MouserPartNumber": "621-1N4148W-F",
     "PriceBreaks": [
-      {"Quantity": 1, "Price": "$0.12", "Currency": "USD"},
-      {"Quantity": 10, "Price": "$0.062", "Currency": "USD"},
-      {"Quantity": 100, "Price": "$0.03", "Currency": "USD"},
-      {"Quantity": 3000, "Price": "$0.017", "Currency": "USD"}
+      {
+        "Quantity": 1,
+        "Price": "$0.12",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 10,
+        "Price": "$0.062",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 100,
+        "Price": "$0.03",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 3000,
+        "Price": "$0.017",
+        "Currency": "USD"
+      }
     ],
     "ProductDetailUrl": "https://www.mouser.com/ProductDetail/621-1N4148W-F",
     "ROHSStatus": "RoHS Compliant"
@@ -139,8 +265,16 @@
     "Mult": "1",
     "MouserPartNumber": "512-1N4148",
     "PriceBreaks": [
-      {"Quantity": 1, "Price": "$0.10", "Currency": "USD"},
-      {"Quantity": 100, "Price": "$0.035", "Currency": "USD"}
+      {
+        "Quantity": 1,
+        "Price": "$0.10",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 100,
+        "Price": "$0.035",
+        "Currency": "USD"
+      }
     ],
     "ProductDetailUrl": "https://www.mouser.com/ProductDetail/512-1N4148",
     "ROHSStatus": "RoHS Compliant"
@@ -156,8 +290,16 @@
     "Mult": "1",
     "MouserPartNumber": "78-1N4148",
     "PriceBreaks": [
-      {"Quantity": 1, "Price": "$0.09", "Currency": "USD"},
-      {"Quantity": 100, "Price": "$0.03", "Currency": "USD"}
+      {
+        "Quantity": 1,
+        "Price": "$0.09",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 100,
+        "Price": "$0.03",
+        "Currency": "USD"
+      }
     ],
     "ProductDetailUrl": "https://www.mouser.com/ProductDetail/78-1N4148",
     "ROHSStatus": "RoHS Compliant"
@@ -188,10 +330,23 @@
     "Min": "3000",
     "Mult": "3000",
     "MouserPartNumber": "771-BAT54S-T/R",
-    "ProductAttributes": [{"AttributeName": "Packaging", "AttributeValue": "Reel"}],
+    "ProductAttributes": [
+      {
+        "AttributeName": "Packaging",
+        "AttributeValue": "Reel"
+      }
+    ],
     "PriceBreaks": [
-      {"Quantity": 3000, "Price": "$0.019", "Currency": "USD"},
-      {"Quantity": 9000, "Price": "$0.016", "Currency": "USD"}
+      {
+        "Quantity": 3000,
+        "Price": "$0.019",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 9000,
+        "Price": "$0.016",
+        "Currency": "USD"
+      }
     ],
     "ProductDetailUrl": "https://www.mouser.com/ProductDetail/771-BAT54S-T-R",
     "ROHSStatus": "RoHS Compliant"
@@ -199,7 +354,12 @@
   {
     "Availability": "150 In Stock",
     "AvailabilityInStock": "150",
-    "AvailabilityOnOrder": [{"Quantity": 1000, "Date": "2026-10-20T00:00:00"}],
+    "AvailabilityOnOrder": [
+      {
+        "Quantity": 1000,
+        "Date": "2026-10-20T00:00:00"
+      }
+    ],
     "Description": "WiFi Modules (802.11) SMD Module ESP32-D0WD-V3 4MB",
     "LeadTime": "12 Weeks",
     "LifecycleStatus": "New Product",
@@ -209,9 +369,21 @@
     "Mult": "1",
     "MouserPartNumber": "356-ESP32WRM32EN4",
     "PriceBreaks": [
-      {"Quantity": 1, "Price": "$3.40", "Currency": "USD"},
-      {"Quantity": 10, "Price": "$3.10", "Currency": "USD"},
-      {"Quantity": 100, "Price": "$2.85", "Currency": "USD"}
+      {
+        "Quantity": 1,
+        "Price": "$3.40",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 10,
+        "Price": "$3.10",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 100,
+        "Price": "$2.85",
+        "Currency": "USD"
+      }
     ],
     "ProductDetailUrl": "https://www.mouser.com/ProductDetail/356-ESP32WRM32EN4",
     "ROHSStatus": "RoHS Compliant"
@@ -227,11 +399,223 @@
     "Mult": "1",
     "MouserPartNumber": "603-RC0603FR-074K7L",
     "PriceBreaks": [
-      {"Quantity": 1, "Price": "$0.10", "Currency": "USD"},
-      {"Quantity": 10, "Price": "$0.012", "Currency": "USD"},
-      {"Quantity": 100, "Price": "$0.004", "Currency": "USD"}
+      {
+        "Quantity": 1,
+        "Price": "$0.10",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 10,
+        "Price": "$0.012",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 100,
+        "Price": "$0.004",
+        "Currency": "USD"
+      }
     ],
     "ProductDetailUrl": "https://www.mouser.com/ProductDetail/603-RC0603FR-074K7L",
+    "ROHSStatus": "RoHS Compliant",
+    "Category": "Thick Film Resistors - SMD"
+  },
+  {
+    "Availability": "50000 In Stock",
+    "AvailabilityInStock": "50000",
+    "Description": "Thick Film Resistors - SMD 1/10watt 4.7Kohms 1% 100ppm",
+    "Category": "Thick Film Resistors - SMD",
+    "LeadTime": "10 Weeks",
+    "LifecycleStatus": null,
+    "Manufacturer": "Vishay / Dale",
+    "ManufacturerPartNumber": "CRCW06034K70FKEA",
+    "Min": "1",
+    "Mult": "1",
+    "MouserPartNumber": "71-CRCW06034K70FKEA",
+    "PriceBreaks": [
+      {
+        "Quantity": 1,
+        "Price": "$0.10",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 10,
+        "Price": "$0.011",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 100,
+        "Price": "$0.0035",
+        "Currency": "USD"
+      }
+    ],
+    "ProductDetailUrl": "https://www.mouser.com/ProductDetail/71-CRCW06034K70FKEA",
+    "ROHSStatus": "RoHS Compliant"
+  },
+  {
+    "Availability": "100000 In Stock",
+    "AvailabilityInStock": "100000",
+    "Description": "Thick Film Resistors - SMD 0603 4.7K ohm 1% resistor",
+    "Category": "Thick Film Resistors - SMD",
+    "LeadTime": "10 Weeks",
+    "LifecycleStatus": null,
+    "Manufacturer": "Acme Passives",
+    "ManufacturerPartNumber": "XR0603-4K7",
+    "Min": "1",
+    "Mult": "1",
+    "MouserPartNumber": "999-XR0603-4K7",
+    "PriceBreaks": [
+      {
+        "Quantity": 1,
+        "Price": "$0.01",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 10,
+        "Price": "$0.001",
+        "Currency": "USD"
+      }
+    ],
+    "ProductDetailUrl": "https://www.mouser.com/ProductDetail/999-XR0603-4K7",
+    "ROHSStatus": "RoHS Compliant"
+  },
+  {
+    "Availability": "80000 In Stock",
+    "AvailabilityInStock": "80000",
+    "Description": "Thick Film Resistors - SMD 4.7K ohm 5% 0603 resistor",
+    "Category": "Thick Film Resistors - SMD",
+    "LeadTime": "10 Weeks",
+    "LifecycleStatus": null,
+    "Manufacturer": "YAGEO",
+    "ManufacturerPartNumber": "RC0603JR-074K7L",
+    "Min": "1",
+    "Mult": "1",
+    "MouserPartNumber": "603-RC0603JR-074K7L",
+    "PriceBreaks": [
+      {
+        "Quantity": 1,
+        "Price": "$0.10",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 10,
+        "Price": "$0.002",
+        "Currency": "USD"
+      }
+    ],
+    "ProductDetailUrl": "https://www.mouser.com/ProductDetail/603-RC0603JR-074K7L",
+    "ROHSStatus": "RoHS Compliant"
+  },
+  {
+    "Availability": "90000 In Stock",
+    "AvailabilityInStock": "90000",
+    "Description": "Thick Film Resistors - SMD 1/16W 4.7K ohm 1% 0402",
+    "Category": "Thick Film Resistors - SMD",
+    "LeadTime": "10 Weeks",
+    "LifecycleStatus": null,
+    "Manufacturer": "YAGEO",
+    "ManufacturerPartNumber": "RC0402FR-074K7L",
+    "Min": "1",
+    "Mult": "1",
+    "MouserPartNumber": "603-RC0402FR-074K7L",
+    "PriceBreaks": [
+      {
+        "Quantity": 1,
+        "Price": "$0.10",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 10,
+        "Price": "$0.009",
+        "Currency": "USD"
+      }
+    ],
+    "ProductDetailUrl": "https://www.mouser.com/ProductDetail/603-RC0402FR-074K7L",
+    "ROHSStatus": "RoHS Compliant"
+  },
+  {
+    "Availability": "400000 In Stock",
+    "AvailabilityInStock": "400000",
+    "Description": "Multilayer Ceramic Capacitors MLCC - SMD/SMT 0603 0.1uF 50volts X7R 10% MLCC",
+    "Category": "Multilayer Ceramic Capacitors MLCC - SMD/SMT",
+    "LeadTime": "10 Weeks",
+    "LifecycleStatus": null,
+    "Manufacturer": "Samsung Electro-Mechanics",
+    "ManufacturerPartNumber": "CL10B104KB8NNNC",
+    "Min": "1",
+    "Mult": "1",
+    "MouserPartNumber": "187-CL10B104KB8NNNC",
+    "PriceBreaks": [
+      {
+        "Quantity": 1,
+        "Price": "$0.10",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 10,
+        "Price": "$0.015",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 100,
+        "Price": "$0.006",
+        "Currency": "USD"
+      }
+    ],
+    "ProductDetailUrl": "https://www.mouser.com/ProductDetail/187-CL10B104KB8NNNC",
+    "ROHSStatus": "RoHS Compliant"
+  },
+  {
+    "Availability": "300000 In Stock",
+    "AvailabilityInStock": "300000",
+    "Description": "Multilayer Ceramic Capacitors MLCC - SMD/SMT 0603 0.1uF 50volts Y5V +80-20% MLCC",
+    "Category": "Multilayer Ceramic Capacitors MLCC - SMD/SMT",
+    "LeadTime": "10 Weeks",
+    "LifecycleStatus": null,
+    "Manufacturer": "Samsung Electro-Mechanics",
+    "ManufacturerPartNumber": "CL10F104ZB8NNNC",
+    "Min": "1",
+    "Mult": "1",
+    "MouserPartNumber": "187-CL10F104ZB8NNNC",
+    "PriceBreaks": [
+      {
+        "Quantity": 1,
+        "Price": "$0.10",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 10,
+        "Price": "$0.004",
+        "Currency": "USD"
+      }
+    ],
+    "ProductDetailUrl": "https://www.mouser.com/ProductDetail/187-CL10F104ZB8NNNC",
+    "ROHSStatus": "RoHS Compliant"
+  },
+  {
+    "Availability": "300000 In Stock",
+    "AvailabilityInStock": "300000",
+    "Description": "Multilayer Ceramic Capacitors MLCC - SMD/SMT 0603 0.1uF 10volts X5R 10% MLCC",
+    "Category": "Multilayer Ceramic Capacitors MLCC - SMD/SMT",
+    "LeadTime": "10 Weeks",
+    "LifecycleStatus": null,
+    "Manufacturer": "Samsung Electro-Mechanics",
+    "ManufacturerPartNumber": "CL10A104KP8NNNC",
+    "Min": "1",
+    "Mult": "1",
+    "MouserPartNumber": "187-CL10A104KP8NNNC",
+    "PriceBreaks": [
+      {
+        "Quantity": 1,
+        "Price": "$0.10",
+        "Currency": "USD"
+      },
+      {
+        "Quantity": 10,
+        "Price": "$0.005",
+        "Currency": "USD"
+      }
+    ],
+    "ProductDetailUrl": "https://www.mouser.com/ProductDetail/187-CL10A104KP8NNNC",
     "ROHSStatus": "RoHS Compliant"
   }
 ]
