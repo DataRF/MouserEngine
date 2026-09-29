@@ -44,6 +44,24 @@ DETAIL_COLUMNS = [
 ]
 
 
+def _page_setup(sheet, landscape: bool, fit_width: bool = True) -> None:
+    """Configuración de impresión.
+
+    Hojas angostas: ajustadas al ancho de una página. Hojas anchas (detalle): horizontal al 70 %,
+    repitiendo la fila de encabezado y las primeras columnas en cada página para que se lean.
+    """
+    sheet.page_setup.orientation = "landscape" if landscape else "portrait"
+    if fit_width:
+        sheet.page_setup.fitToWidth = 1
+        sheet.page_setup.fitToHeight = 0
+        sheet.sheet_properties.pageSetUpPr.fitToPage = True
+    else:
+        sheet.page_setup.scale = 70
+        sheet.print_title_cols = "A:B"
+    if landscape:
+        sheet.print_title_rows = "1:1"
+
+
 def _num(value: Decimal | None) -> float | None:
     return float(value) if value is not None else None
 
@@ -166,10 +184,15 @@ def export_excel(
     if summary.mixed_currency:
         notes.append("ATENCIÓN: hay partes cotizadas en monedas distintas.")
     for note in notes:
-        ws.cell(row=row_index, column=1, value=note).font = Font(italic=True, color="555555")
+        cell = ws.cell(row=row_index, column=1, value=note)
+        cell.font = Font(italic=True, color="555555")
+        cell.alignment = Alignment(wrap_text=True, vertical="top")
+        ws.merge_cells(start_row=row_index, start_column=1, end_row=row_index, end_column=2)
+        ws.row_dimensions[row_index].height = 30
         row_index += 1
     ws.column_dimensions["A"].width = 34
     ws.column_dimensions["B"].width = 22
+    _page_setup(ws, landscape=False)
 
     # --- Detalle y Problemas ---------------------------------------------------
     def write_detail(sheet, pairs):
@@ -187,6 +210,7 @@ def export_excel(
             "Mín.": _INT_FMT, "Múlt.": _INT_FMT, "Cant. a comprar": _INT_FMT, "Stock Mouser": _INT_FMT,
             "Cant. óptima": _INT_FMT,
         }
+        centered = {"Ítem", "Líneas BOM", "Comprar", "Moneda"}
         status_col = titles.index("Estado") + 1
         link_col = titles.index("Link Mouser") + 1
         sheet_col = titles.index("Datasheet") + 1
@@ -197,6 +221,8 @@ def export_excel(
                 fmt = formats.get(titles[c - 1])
                 if fmt:
                     cell.number_format = fmt
+                if titles[c - 1] in centered:
+                    cell.alignment = Alignment(horizontal="center")
                 cell.border = border
             fill = _FILLS.get(q.level)
             if fill:
@@ -210,6 +236,7 @@ def export_excel(
         sheet.freeze_panes = "B2"
         last = get_column_letter(len(DETAIL_COLUMNS))
         sheet.auto_filter.ref = f"A1:{last}{max(1, len(pairs) + 1)}"
+        _page_setup(sheet, landscape=True, fit_width=False)
 
     pairs = list(zip(items, quotes))
     write_detail(wb.create_sheet("Detalle"), pairs)
@@ -228,6 +255,7 @@ def export_excel(
     for r, row in enumerate(cart_rows(items, quotes), start=2):
         for c, value in enumerate(row, start=1):
             cart.cell(row=r, column=c, value=value)
+    _page_setup(cart, landscape=True)
 
     # --- BOM original ----------------------------------------------------------
     if bom_grid:
