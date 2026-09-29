@@ -8,6 +8,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).parent))
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+if sys.platform.startswith("win"):
+    # En Windows, la plataforma «offscreen» de Qt solo ve las fuentes de QT_QPA_FONTDIR: sin esto no hay
+    # fuentes y el texto no se dibuja (el PDF quedaría sin texto).
+    os.environ.setdefault("QT_QPA_FONTDIR", str(Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts"))
 
 from fake_mouser import FakeMouserServer  # noqa: E402
 

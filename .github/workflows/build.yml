@@ -54,6 +54,12 @@ jobs:
           $proc = Start-Process -FilePath "dist\MouserEngine.exe" -ArgumentList "--self-test" -Wait -PassThru
           Get-Content (Join-Path $env:TEMP "mouser_engine_selftest.log")
           if ($proc.ExitCode -ne 0) { throw "La autoprueba falló (código $($proc.ExitCode))" }
+      - name: Autoprueba con la plataforma gráfica de Windows (como la usa el usuario)
+        shell: pwsh
+        run: |
+          $proc = Start-Process -FilePath "dist\MouserEngine.exe" -ArgumentList "--self-test" -Wait -PassThru
+          Get-Content (Join-Path $env:TEMP "mouser_engine_selftest.log")
+          if ($proc.ExitCode -ne 0) { throw "La autoprueba falló (código $($proc.ExitCode))" }
       - uses: actions/upload-artifact@v5
         with:
           name: MouserEngine-windows

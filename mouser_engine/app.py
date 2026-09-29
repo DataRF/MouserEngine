@@ -51,6 +51,8 @@ def main(argv: list[str] | None = None) -> int:
     if "--self-test" in argv:
         if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
             os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        if sys.platform.startswith("win"):  # por si se prueba con la plataforma «offscreen» (sin fuentes propias)
+            os.environ.setdefault("QT_QPA_FONTDIR", str(Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts"))
         return run_self_test(argv)
 
     if sys.platform.startswith("win"):
@@ -173,9 +175,12 @@ def run_self_test(argv: list[str]) -> int:
             workbook.close()
 
             pdf = window.export_client_report(str(Path(tmp) / "informe.pdf"))
-            if not pdf or not Path(pdf).read_bytes().startswith(b"%PDF"):
+            data = Path(pdf).read_bytes() if pdf else b""
+            if not data.startswith(b"%PDF"):
                 raise RuntimeError("no se generó el informe PDF")
-            lines.append(f"informe_pdf={Path(pdf).stat().st_size // 1024} KB")
+            if b"/FontFile" not in data or b"/ToUnicode" not in data:  # texto real, no solo contornos
+                raise RuntimeError("el informe PDF no tiene texto seleccionable (fuentes no incrustadas)")
+            lines.append(f"informe_pdf={len(data) // 1024} KB plataforma={app.platformName()}")
 
             entries = window.history.entries()
             if not entries:
