@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 
+from .landed import ImportSetup, LandedCost
 from .utils import normalize_header, normalize_pn, parse_int, parse_lead_time_days, parse_number
 
 # Niveles de estado, de menor a mayor gravedad.
@@ -351,6 +352,9 @@ class QuoteParams:
     duty_pct: float = 0.0
     vat_pct: float = 0.0
     fx_rate: float = 0.0  # pesos chilenos por unidad de la moneda de Mouser (0 = no convertir)
+    landed: bool = False  # precio con todo incluido (puesto en Chile): requiere import_setup
+    import_setup: ImportSetup | None = None  # reglas de importación y dólar del día
+    assume_stock: bool = False  # elegir sin mirar el stock (análisis de volumen)
 
 
 @dataclass
@@ -416,3 +420,4 @@ class QuoteSummary:
     total: Decimal = Decimal(0)
     total_clp: Decimal | None = None
     mixed_currency: bool = False
+    landed: LandedCost | None = None  # desglose del precio puesto en Chile (si se pidió y se pudo calcular)

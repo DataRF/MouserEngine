@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import traceback
+from decimal import Decimal
 from pathlib import Path
 
 from . import APP_NAME, __version__
@@ -130,6 +131,7 @@ def run_self_test(argv: list[str]) -> int:
         from .bom import load_table
         from .config import Settings
         from .gui.main_window import MainWindow
+        from .landed import ExchangeRates, ImportUpdate
         from .mouser_api import MouserClient, RateLimiter
 
         def wait_for(condition, seconds: float = 30) -> None:
@@ -148,7 +150,10 @@ def run_self_test(argv: list[str]) -> int:
             settings = Settings(api_key="self-test", cart_api_key="self-test", boards=10)
             factory = lambda key: MouserClient(key, opener=_self_test_opener,  # noqa: E731
                                                rate_limiter=RateLimiter(1000, 60))
-            window = MainWindow(settings=settings, client_factory=factory, persist=False)
+            rates = ExchangeRates(usd=Decimal("950"), usd_date="2026-09-29", customs=Decimal("940"),
+                                  customs_month="2026-09")  # sin red: dólar fijo
+            window = MainWindow(settings=settings, client_factory=factory, persist=False,
+                                import_updater=lambda: ImportUpdate(rates=rates))
             window.interactive = False
             window.show()
             if not window.load_table(load_table(bom)):
@@ -157,6 +162,16 @@ def run_self_test(argv: list[str]) -> int:
             lines.append(f"subtotal={window.summary.goods} currency={window.summary.currency}")
             if window.summary.priced != 2:
                 raise RuntimeError(f"se esperaban 2 partes con precio, hay {window.summary.priced}")
+
+            # precio con todo incluido: las reglas de importación vienen dentro del ejecutable
+            if window.import_rules is None or window.import_rules.source != "incluidas":
+                raise RuntimeError("no se leyeron las reglas de importación incluidas en el programa")
+            window.landed_check.setChecked(True)
+            wait_for(lambda: window.summary.landed is not None, 5)
+            landed = window.summary.landed
+            if landed is None or not landed.total > window.summary.goods or landed.customs_rate != 940:
+                raise RuntimeError("no se calculó el precio puesto en Chile")
+            lines.append(f"puesto_en_chile={landed.total} {landed.currency} (CLP {landed.total_clp})")
 
             window.main_tabs.setCurrentWidget(window.scenarios)
             wait_for(lambda: bool(window.scenarios.chart.points), 15)

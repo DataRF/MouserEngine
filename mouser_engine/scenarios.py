@@ -5,6 +5,10 @@
 - `CostModel` calcula lo mismo con números de punto flotante y datos precalculados, para
   dibujar la curva completa al instante mientras se mueve la barra de cantidad. Las pruebas
   verifican que ambos coincidan.
+
+El análisis supone que hay stock de todas las partes: en cada cantidad se elige la opción más
+conveniente por precio aunque hoy Mouser no tenga stock suficiente (igual se cuentan esas partes).
+Con el precio con todo incluido, el costo suma el flete, la aduana, el IVA y el desaduanamiento.
 """
 
 from __future__ import annotations
@@ -14,6 +18,7 @@ from dataclasses import dataclass, replace
 from decimal import Decimal
 from fractions import Fraction
 
+from .landed import landed_cost
 from .models import LEVEL_EXCLUDED, LEVEL_ORDER, BomItem, Part, QuoteParams
 from .passives import candidate_spec, is_recognized
 from .quote import quote_all, summarize
@@ -32,7 +37,7 @@ class ScenarioRow:
     included: int
     priced: int
     unpriced: int
-    short: int  # partes con stock insuficiente en Mouser para esa cantidad
+    short: int  # partes cuyo stock actual en Mouser no alcanza para esa cantidad
     change: Decimal | None = None  # variación del costo total por placa vs la fila anterior (%)
 
 
@@ -40,7 +45,7 @@ def scenario_table(items: list[BomItem], params: QuoteParams, quantities: list[i
     rows: list[ScenarioRow] = []
     previous: Decimal | None = None
     for boards in quantities:
-        p = replace(params, boards=boards)
+        p = replace(params, boards=boards, assume_stock=True)
         quotes = quote_all(items, p)
         summary = summarize(items, quotes, p)
         short = sum(1 for q in quotes if q.level != LEVEL_EXCLUDED and q.part is not None and q.buy_qty
@@ -120,7 +125,8 @@ def _option_from_part(part: Part, by_spec: bool) -> _Option:
 
 
 class CostModel:
-    """Réplica en punto flotante de la selección y el costo de `quote.py`, para muchas cantidades."""
+    """Réplica en punto flotante de la selección y el costo de `quote.py` (suponiendo stock), para muchas
+    cantidades."""
 
     def __init__(self, items: list[BomItem], params: QuoteParams):
         self.params = params
@@ -164,11 +170,7 @@ class CostModel:
         for option in entry.options:
             qty = _buy_qty(max(required, 1), option.min_qty, option.mult)
             cost = _price(option, qty)
-            in_stock = option.stock is not None and option.stock >= qty
-            key = (
-                0 if option.orderable else 1,
-                0 if in_stock else 1,
-            )
+            key = (0 if option.orderable else 1,)  # se supone que habrá stock: no cuenta al elegir
             if entry.by_spec:
                 key += (0 if option.recognized else 1,)
             key += (option.lifecycle_rank, cost if cost is not None else math.inf)
@@ -191,8 +193,6 @@ class CostModel:
             if break_qty <= base_qty:
                 continue
             qty = _buy_qty(break_qty, option.min_qty, option.mult)
-            if option.stock is not None and base_qty <= option.stock < qty:
-                continue
             cost = _price(option, qty)
             if cost is not None and cost < best_cost:
                 best_qty, best_cost = qty, cost
@@ -220,10 +220,14 @@ class CostModel:
                 short += 1
         goods = round(goods, 2)
         p = self.params
-        base = goods + float(p.freight or 0)
-        duty = round(base * float(p.duty_pct or 0) / 100, 2)
-        vat = round((base + duty) * float(p.vat_pct or 0) / 100, 2)
-        total = round(base + duty + vat, 2)
+        if p.landed and p.import_setup is not None:
+            cost = landed_cost(Decimal(str(goods)), self.currency, p.import_setup)
+            total = float(cost.total) if cost is not None else goods
+        else:
+            base = goods + float(p.freight or 0)
+            duty = round(base * float(p.duty_pct or 0) / 100, 2)
+            vat = round((base + duty) * float(p.vat_pct or 0) / 100, 2)
+            total = round(base + duty + vat, 2)
         n = max(1, boards)
         return CurvePoint(boards, goods, goods / n, total, total / n, short, priced, unpriced)
 

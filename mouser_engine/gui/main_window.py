@@ -8,7 +8,7 @@ import subprocess
 import sys
 import time
 from dataclasses import replace
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Callable
@@ -55,7 +55,6 @@ from ..cart import CartLine, CartResult, cart_lines
 from ..config import Settings
 from ..export import export_cart_csv, export_excel
 from ..formatting import fmt_int, fmt_money, fmt_num
-from ..fx import fetch_clp_rate
 from ..history import (
     ComparisonRow,
     HistoryEntry,
@@ -77,6 +76,18 @@ from ..mouser_api import (
     MouserRateLimitError,
     RateLimiter,
 )
+from ..landed import (
+    CURRENCIES,
+    ExchangeRates,
+    ImportDataError,
+    ImportRules,
+    ImportSetup,
+    ImportUpdate,
+    builtin_rules,
+    month_name,
+    newest_rules,
+    update_import_data,
+)
 from ..lookup import lookup_all
 from ..passives import Defaults, parse_spec
 from ..quote import apply_lookup, mark_specs_disabled, queries_for, quote_all, specs_for, summarize
@@ -87,6 +98,7 @@ from .dialogs import ImportDialog, SearchDialog, SettingsDialog
 from .history_dialogs import ComparisonDialog, HistoryDialog, fmt_when
 from .icons import cart_icon
 from .items_model import COL, COLUMNS, STATUS_FILTERS, ItemsFilterModel, ItemsModel
+from .landed_dialog import LandedDialog
 from .pdf_report import PAGE_LABELS, write_client_report
 from .report_dialog import ClientReportDialog, ReportOptions
 from .scenarios_panel import ScenariosPanel
@@ -153,7 +165,7 @@ class DropZone(QFrame):
 class MainWindow(QMainWindow):
     def __init__(self, settings: Settings | None = None,
                  client_factory: Callable[..., MouserClient] | None = None,
-                 persist: bool = True):
+                 persist: bool = True, import_updater: Callable[[], ImportUpdate] | None = None):
         super().__init__()
         self.settings = settings or Settings.load()
         self.persist = persist
@@ -166,6 +178,12 @@ class MainWindow(QMainWindow):
         self.quotes: list[ItemQuote] = []
         self.summary = QuoteSummary()
         self.params = QuoteParams()
+        # precio con todo incluido: reglas de importación y dólar del día (se actualizan al abrir)
+        self._import_updater = import_updater or update_import_data
+        self._import_worker: Worker | None = None
+        self._import_error = ""
+        self.import_rules = self._initial_rules()
+        self.import_rates = ExchangeRates.from_json(self.settings.import_rates)
         self.last_query: datetime | None = None
         self._lookup_worker: Worker | None = None
         self._lookup_targets: list[BomItem] = []
@@ -199,6 +217,7 @@ class MainWindow(QMainWindow):
         self._build_central()
         self._build_status_bar()
         self._load_params_into_widgets()
+        self._update_import_label()
 
         self.recalc_timer = QTimer(self)
         self.recalc_timer.setSingleShot(True)
@@ -388,36 +407,21 @@ class MainWindow(QMainWindow):
         form.addRow(self.optimize_check)
         layout.addWidget(buy_box)
 
-        cost_box = QGroupBox("Costos adicionales (estimación)")
-        cform = QFormLayout(cost_box)
-        self.freight_spin = QDoubleSpinBox()
-        self.freight_spin.setRange(0, 10_000_000)
-        self.freight_spin.setDecimals(2)
-        self.freight_spin.setGroupSeparatorShown(True)
-        self.freight_spin.setToolTip("Costo de envío en la moneda de Mouser")
-        cform.addRow("Flete:", self.freight_spin)
-        self.duty_spin = self._pct_spin("Arancel de importación sobre (componentes + flete)")
-        cform.addRow("Arancel:", self.duty_spin)
-        self.vat_spin = self._pct_spin("IVA sobre (componentes + flete + arancel). En Chile: 19 %")
-        cform.addRow("IVA:", self.vat_spin)
-        fx_row = QHBoxLayout()
-        fx_row.setSpacing(4)
-        self.fx_spin = QDoubleSpinBox()
-        self.fx_spin.setRange(0, 1_000_000)
-        self.fx_spin.setDecimals(2)
-        self.fx_spin.setGroupSeparatorShown(True)
-        self.fx_spin.setSpecialValueText("—")
-        self.fx_spin.setToolTip("Pesos chilenos por unidad de la moneda de Mouser (0 = no convertir)")
-        self.fx_button = QPushButton("Hoy")
-        self.fx_button.setFixedWidth(52)
-        self.fx_button.setToolTip("Obtener el dólar observado del día (Banco Central de Chile, vía mindicador.cl)")
-        self.fx_button.clicked.connect(self.fetch_fx)
-        fx_row.addWidget(self.fx_spin, 1)
-        fx_row.addWidget(self.fx_button)
-        cform.addRow("Cambio a CLP:", fx_row)
+        cost_box = QGroupBox("Precio puesto en Chile")
+        clayout = QVBoxLayout(cost_box)
+        self.landed_check = QCheckBox("Precio con todo incluido")
+        self.landed_check.setToolTip(
+            "Suma el flete de Mouser y lo que cobra DHL al importar: derechos de aduana, IVA y honorario de "
+            "desaduanamiento, con el dólar del día (Banco Central de Chile). No hay que ingresar nada.")
+        clayout.addWidget(self.landed_check)
+        self.import_label = QLabel("")
+        self.import_label.setObjectName("Hint")
+        self.import_label.setWordWrap(True)
+        self.import_label.setTextFormat(Qt.RichText)
+        self.import_label.linkActivated.connect(self._import_link)
+        clayout.addWidget(self.import_label)
         layout.addWidget(cost_box)
-        for spin in (self.boards_spin, self.spares_spin, self.passive_spin, self.freight_spin,
-                     self.duty_spin, self.vat_spin, self.fx_spin):
+        for spin in (self.boards_spin, self.spares_spin, self.passive_spin):
             spin.setMinimumWidth(80)
             spin.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
@@ -451,10 +455,10 @@ class MainWindow(QMainWindow):
         layout.addWidget(api_box)
         layout.addStretch(1)
 
-        for widget in (self.boards_spin, self.spares_spin, self.passive_spin, self.freight_spin,
-                       self.duty_spin, self.vat_spin, self.fx_spin):
+        for widget in (self.boards_spin, self.spares_spin, self.passive_spin):
             widget.valueChanged.connect(self.schedule_recalc)
         self.optimize_check.toggled.connect(self.schedule_recalc)
+        self.landed_check.toggled.connect(self.schedule_recalc)
 
         panel.setMinimumWidth(250)
         scroll = QScrollArea()
@@ -501,6 +505,8 @@ class MainWindow(QMainWindow):
         self.card_status = SummaryCard("Estado de las partes")
         for card in (self.card_goods, self.card_savings, self.card_total, self.card_status):
             cards.addWidget(card)
+        self.card_total.sub.setTextFormat(Qt.RichText)
+        self.card_total.sub.linkActivated.connect(self._import_link)
         right.addLayout(cards)
 
         filters = QHBoxLayout()
@@ -599,22 +605,18 @@ class MainWindow(QMainWindow):
         self.auto_spin.setValue(s.auto_refresh_minutes)
         self.auto_spin.blockSignals(False)
         self._apply_params(QuoteParams(max(0, s.boards), s.spares_pct, s.passive_spares_pct, s.optimize_breaks,
-                                       s.freight, s.duty_pct, s.vat_pct, s.fx_rate))
+                                       landed=s.landed_cost))
 
     def _apply_params(self, p: QuoteParams) -> None:
         """Muestra los parámetros en el panel izquierdo (sin recalcular todavía)."""
-        widgets = (self.boards_spin, self.spares_spin, self.passive_spin, self.freight_spin, self.duty_spin,
-                   self.vat_spin, self.fx_spin, self.optimize_check)
+        widgets = (self.boards_spin, self.spares_spin, self.passive_spin, self.optimize_check, self.landed_check)
         for widget in widgets:
             widget.blockSignals(True)
         self.boards_spin.setValue(max(0, int(p.boards)))
         self.spares_spin.setValue(p.spares_pct)
         self.passive_spin.setValue(p.passive_spares_pct)
         self.optimize_check.setChecked(bool(p.optimize_breaks))
-        self.freight_spin.setValue(p.freight)
-        self.duty_spin.setValue(p.duty_pct)
-        self.vat_spin.setValue(p.vat_pct)
-        self.fx_spin.setValue(p.fx_rate)
+        self.landed_check.setChecked(bool(p.landed))
         for widget in widgets:
             widget.blockSignals(False)
         self.params = self._read_params()
@@ -625,10 +627,8 @@ class MainWindow(QMainWindow):
             spares_pct=self.spares_spin.value(),
             passive_spares_pct=self.passive_spin.value(),
             optimize_breaks=self.optimize_check.isChecked(),
-            freight=self.freight_spin.value(),
-            duty_pct=self.duty_spin.value(),
-            vat_pct=self.vat_spin.value(),
-            fx_rate=self.fx_spin.value(),
+            landed=self.landed_check.isChecked(),
+            import_setup=self.import_setup,
         )
 
     def _store_params(self) -> None:
@@ -636,8 +636,7 @@ class MainWindow(QMainWindow):
         s = self.settings
         s.client_name = self.client_edit.text().strip()
         s.boards, s.spares_pct, s.passive_spares_pct = p.boards, p.spares_pct, p.passive_spares_pct
-        s.optimize_breaks, s.freight, s.duty_pct, s.vat_pct, s.fx_rate = (
-            p.optimize_breaks, p.freight, p.duty_pct, p.vat_pct, p.fx_rate)
+        s.optimize_breaks, s.landed_cost = p.optimize_breaks, p.landed
 
     def save_settings(self) -> None:
         self._store_params()
@@ -702,6 +701,7 @@ class MainWindow(QMainWindow):
         s = self.summary
         cur = s.currency or ""
         suffix = " (varias monedas)" if s.mixed_currency else ""
+        self._update_import_label()
         if not self.items:
             for card in (self.card_goods, self.card_savings, self.card_total, self.card_status):
                 card.set("—", "")
@@ -716,22 +716,22 @@ class MainWindow(QMainWindow):
             self.card_savings.set(fmt_money(s.savings, cur), sub)
         else:
             self.card_savings.set(fmt_money(0, cur), "No hay tramos que reduzcan el costo.")
-        extras = []
-        if s.freight:
-            extras.append("flete")
-        if s.duty:
-            extras.append("arancel")
-        if s.vat:
-            extras.append("IVA")
-        sub = ("Incluye " + ", ".join(extras) + "." if extras else "Sin costos adicionales ingresados.")
-        if s.total_clp is not None:
-            sub = f"≈ CLP {fmt_int(s.total_clp)} · " + sub
-        self.card_total.set(fmt_money(s.total, cur), sub)
-        in_clp = cur == "CLP"  # la cuenta de Mouser ya cotiza en pesos: no hay conversión que hacer
-        self.fx_spin.setEnabled(not in_clp)
-        self.fx_button.setEnabled(not in_clp)
-        self.fx_spin.setToolTip("Mouser ya entrega los precios en pesos chilenos" if in_clp
-                                else "Pesos chilenos por unidad de la moneda de Mouser (0 = no convertir)")
+        clp = f"≈ CLP {fmt_int(s.total_clp)} · " if s.total_clp is not None else ""
+        if s.landed is not None:
+            self.card_total.title.setText("Total puesto en Chile")
+            sub = f"{clp}con flete, aduana, IVA y desaduanamiento · <a href='landed-detail'>Desglose</a>"
+        else:
+            self.card_total.title.setText("Total estimado")
+            if self.landed_check.isChecked() and s.goods and self.import_setup is not None:
+                sub = ("hay partes en monedas distintas: no se calcula el precio puesto en Chile."
+                       if s.mixed_currency else
+                       "el precio puesto en Chile se calcula para cuentas de Mouser en USD o CLP."
+                       if cur not in CURRENCIES else "solo Mouser: sin flete, aduana ni IVA.")
+            elif s.freight or s.duty or s.vat:
+                sub = clp + "incluye los costos adicionales guardados en la cotización."
+            else:
+                sub = clp + "solo Mouser: sin flete, aduana ni IVA."
+        self.card_total.set(fmt_money(s.total, cur), sub[:1].upper() + sub[1:])
         pending = f" · {s.pending} pendientes" if s.pending else ""
         self.card_status.set(
             f"{s.ok} de {s.included} OK",
@@ -846,6 +846,8 @@ class MainWindow(QMainWindow):
         targets = list(items) if items is not None else list(self.items)
         if not targets:
             return False
+        if not self.import_rates.fetched_on(date.today()):  # la aplicación quedó abierta de un día para otro
+            self.refresh_import_data()
         if self._lookup_worker is not None:
             for item in targets:
                 if item not in self._pending_requery:
@@ -989,6 +991,7 @@ class MainWindow(QMainWindow):
         self._update_query_age()
 
     def _startup(self) -> None:
+        self.refresh_import_data()
         if not self.settings.effective_api_key:
             self._set_connection("idle", "Sin API key configurada")
             self._show_key_banner()
@@ -1286,7 +1289,7 @@ class MainWindow(QMainWindow):
                 "scenario_quantities": s.scenario_quantities, "scenario_max": s.scenario_max,
                 "passives_enabled": s.passives_enabled, "res_tolerance_default": s.res_tolerance_default,
                 "cap_tolerance_default": s.cap_tolerance_default, "cap_voltage_default": s.cap_voltage_default,
-                "batch_size": s.batch_size, "fuzzy_search": s.fuzzy_search,
+                "batch_size": s.batch_size, "fuzzy_search": s.fuzzy_search, "landed_cost": s.landed_cost,
             },
             "snapshot": snapshot_to_json(self.snapshot()),
         }
@@ -1578,26 +1581,107 @@ class MainWindow(QMainWindow):
         elif box.clickedButton() is folder_button:
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(path).parent)))
 
-    # ------------------------------------------------------------------ otros
+    # ------------------------------------------------------------------ precio puesto en Chile
 
-    def fetch_fx(self) -> None:
-        currency = self.summary.currency or "USD"
-        self.fx_button.setEnabled(False)
-        worker = Worker(fetch_clp_rate, currency)
-        worker.signals.result.connect(self._fx_ok)
-        worker.signals.error.connect(self._fx_failed)
-        worker.signals.finished.connect(lambda: self.fx_button.setEnabled(True))
+    def _initial_rules(self) -> ImportRules | None:
+        """Las reglas más nuevas entre las incluidas en el programa y las descargadas la última vez."""
+        candidates = []
+        try:
+            candidates.append(builtin_rules())
+        except (ImportDataError, OSError, ValueError):
+            pass
+        if self.settings.import_rules:
+            try:
+                candidates.append(ImportRules.from_json(self.settings.import_rules, "guardadas"))
+            except ImportDataError:
+                pass
+        return newest_rules(*candidates) if candidates else None
+
+    @property
+    def import_setup(self) -> ImportSetup | None:
+        return ImportSetup(self.import_rules, self.import_rates) if self.import_rules is not None else None
+
+    def refresh_import_data(self) -> None:
+        """Obtiene en segundo plano el dólar del día y las reglas de importación vigentes."""
+        if self._import_worker is not None:
+            return
+        worker = Worker(self._import_updater)
+        worker.signals.result.connect(self._import_data_ready)
+        worker.signals.error.connect(lambda exc: self._import_data_ready(ImportUpdate(rates_error=str(exc))))
+        worker.signals.finished.connect(self._import_data_done)
+        self._import_worker = worker
+        self._update_import_label()
         self.workers.start(worker)
 
     @Slot(object)
-    def _fx_ok(self, result) -> None:
-        rate, day = result
-        self.fx_spin.setValue(rate)
-        self.statusBar().showMessage(f"Tipo de cambio observado {day}: {fmt_num(rate, 2)} CLP.", 10000)
+    def _import_data_ready(self, update: ImportUpdate) -> None:
+        if update.rates is not None:
+            self.import_rates = update.rates
+            self.settings.import_rates = update.rates.to_json()
+        if update.rules is not None and (self.import_rules is None
+                                         or newest_rules(self.import_rules, update.rules) is update.rules):
+            self.import_rules = update.rules
+            self.settings.import_rules = update.rules.to_json()
+        self._import_error = update.rates_error  # las reglas nuevas son opcionales: si faltan, rigen las guardadas
+        self.save_settings()
+        self.schedule_recalc()
 
-    @Slot(object)
-    def _fx_failed(self, exc: Exception) -> None:
-        QMessageBox.information(self, "Tipo de cambio", f"{exc}\n\nPuede ingresarlo manualmente.")
+    def _import_data_done(self) -> None:
+        self._import_worker = None
+        self._update_import_label()
+
+    def _update_import_label(self) -> None:
+        setup = self.import_setup
+        if setup is None:
+            self.landed_check.setEnabled(False)
+            self.import_label.setText("No se pudieron leer las reglas de importación.")
+            return
+        rates, rules = setup.rates, setup.rules
+        pct = lambda value: f"{fmt_num(value, 0, 2)}&nbsp;%"  # noqa: E731 - el «%» no queda solo en otra línea
+        lines = []
+        if self._import_worker is not None:
+            lines.append("Actualizando el dólar del día…")
+        elif setup.estimated_rates:
+            lines.append(f"Sin conexión: dólar de referencia {fmt_num(setup.usd_rate, 2)}. "
+                         "<a href='import-retry'>Reintentar</a>")
+        else:
+            if rates.usd:
+                day = f" ({rates.usd_date[8:10]}-{rates.usd_date[5:7]})" if rates.usd_date else ""
+                lines.append(f"Dólar observado {fmt_num(rates.usd, 2)}{day}")
+            if rates.customs:
+                month = f" ({month_name(rates.customs_month)})" if rates.customs_month else ""
+                lines.append(f"Dólar aduanero {fmt_num(rates.customs, 2)}{month}")
+            if self._import_error and not rates.fetched_on(date.today()):
+                lines.append("Sin conexión: se usa el último dólar obtenido. <a href='import-retry'>Reintentar</a>")
+        cost = self.summary.landed
+        if cost is not None:  # los de esta compra
+            freight, brokerage, since = cost.freight_usd, cost.brokerage_usd, ""
+        else:  # el primer tramo
+            freight, brokerage = rules.freight_usd(Decimal(0)), rules.brokerage_usd(Decimal(0))
+            since = "desde " if len(rules.freight) > 1 or len(rules.brokerage) > 1 else ""
+        lines.append(f"Flete Mouser {since}USD&nbsp;{fmt_num(freight, 0, 2)} · honorario DHL {since}"
+                     f"USD&nbsp;{fmt_num(brokerage, 0, 2)}")
+        detail = " · <a href='landed-detail'>Ver desglose</a>" if cost is not None else ""
+        lines.append(f"Derechos {pct(rules.duty_pct)} · IVA {pct(rules.vat_pct)}{detail}")
+        self.landed_check.setEnabled(True)
+        self.import_label.setText("<br>".join(lines))
+
+    def _import_link(self, link: str) -> None:
+        if link == "landed-detail":
+            self.show_landed_detail()
+        elif link == "import-retry":
+            self.refresh_import_data()
+
+    def show_landed_detail(self) -> LandedDialog | None:
+        cost = self.summary.landed
+        if cost is None:
+            return None
+        dialog = LandedDialog(cost, self.params.boards, self)
+        if self.interactive:
+            dialog.exec()
+        return dialog
+
+    # ------------------------------------------------------------------ otros
 
     def open_settings(self) -> None:
         dialog = SettingsDialog(self.settings, self.client, self.workers, self)

@@ -14,6 +14,7 @@ from mouser_engine.history import (
     snapshot_from_json,
     snapshot_to_json,
 )
+from mouser_engine.landed import ExchangeRates, ImportSetup, builtin_rules
 from mouser_engine.lookup import lookup_all
 from mouser_engine.models import Part, PriceBreak, QuoteParams
 from mouser_engine.passives import Defaults
@@ -61,6 +62,23 @@ def test_snapshot_round_trip_keeps_quote(client, example_bom):
     assert passive.spec_report == next(i for i in snapshot.items if i.by_spec).spec_report
     assert [i.designators for i in restored.items] == [i.designators for i in snapshot.items]
     assert [i.looked_up_at for i in restored.items] == [i.looked_up_at for i in snapshot.items]
+
+
+def test_snapshot_keeps_landed_cost_setup(client, example_bom):
+    setup = ImportSetup(builtin_rules(), ExchangeRates(usd=Decimal("942.25"), usd_date="2026-09-29",
+                                                       customs=Decimal("933.9"), customs_date="2026-08-28",
+                                                       customs_month="2026-09"))
+    snapshot = quoted_snapshot(client, example_bom, landed=True, import_setup=setup)
+    restored = snapshot_from_json(json.loads(json.dumps(snapshot_to_json(snapshot))))
+    assert restored.params.landed and restored.params.import_setup.rates == setup.rates
+    assert restored.params.import_setup.rules.version == setup.rules.version
+    before = summarize(snapshot.items, quote_all(snapshot.items, snapshot.params), snapshot.params)
+    after = summarize(restored.items, quote_all(restored.items, restored.params), restored.params)
+    assert before.landed is not None and after.total == before.total > before.goods
+    # cotizaciones guardadas con versiones anteriores (sin reglas de importación)
+    data = snapshot_to_json(snapshot)
+    del data["params"]["import_setup"]
+    assert snapshot_from_json(data).params.import_setup is None
 
 
 def test_part_without_raw_is_serialized():

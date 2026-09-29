@@ -2,6 +2,8 @@ import json
 import threading
 import time
 import urllib.error
+from datetime import datetime
+from decimal import Decimal
 
 import pytest
 from PySide6.QtCore import Qt
@@ -13,13 +15,20 @@ from mouser_engine.gui.items_model import COL
 from mouser_engine.gui.main_window import MainWindow
 from mouser_engine.gui.workers import Worker, WorkerPool
 from mouser_engine.history import snapshot_from_json
+from mouser_engine.landed import ExchangeRates, ImportUpdate
 from mouser_engine.lookup import LookupBundle
 from mouser_engine.mouser_api import MouserClient, RateLimiter
 
 
+def today_rates():
+    return ExchangeRates(usd=Decimal("942.25"), usd_date="2026-09-29", customs=Decimal("933.9"),
+                         customs_date="2026-08-28", customs_month="2026-09",
+                         fetched_at=datetime.now().isoformat(timespec="seconds"))
+
+
 @pytest.fixture
 def make_window(qtbot, server):
-    def factory(api_key="test-key", opener=None, **settings):
+    def factory(api_key="test-key", opener=None, import_updater=None, **settings):
         settings.setdefault("boards", 10)
         s = Settings(api_key=api_key, **settings)
 
@@ -27,7 +36,8 @@ def make_window(qtbot, server):
             return MouserClient(key, opener=opener or server.opener, rate_limiter=RateLimiter(1000, 60),
                                 sleep=lambda x: None, on_request=s.register_call)
 
-        window = MainWindow(settings=s, client_factory=client_factory, persist=False)
+        window = MainWindow(settings=s, client_factory=client_factory, persist=False,
+                            import_updater=import_updater or (lambda: ImportUpdate(rates=today_rates())))
         window.interactive = False
         qtbot.addWidget(window)
         window.show()
@@ -218,10 +228,36 @@ def test_scenarios_tab(make_window, qtbot, example_bom):
     window.main_tabs.setCurrentWidget(window.scenarios)
     qtbot.waitUntil(lambda: bool(window.scenarios.chart.points), timeout=5000)
     assert window.scenarios.table.rowCount() == 7
+    chart = window.scenarios.chart
+    assert chart.cursor == 1 and chart.renderer.limit == 1  # parte en 1 placa
     window.scenarios.set_boards(100)
-    assert window.scenarios.chart.cursor == 100 and window.scenarios.chart.cursor_point.boards == 100
+    assert chart.cursor == 100 and chart.cursor_point.boards == 100
+    assert "Supone que hay stock" in window.scenarios.note.text()
     window.scenarios.use_quantity.emit(100)  # «Usar en la cotización»
     qtbot.waitUntil(lambda: window.params.boards == 100, timeout=2000)
+
+
+def test_scenario_chart_grows_with_the_slider(make_window, qtbot, example_bom):
+    window = loaded(qtbot, make_window(), example_bom)
+    window.main_tabs.setCurrentWidget(window.scenarios)
+    qtbot.waitUntil(lambda: bool(window.scenarios.chart.points), timeout=5000)
+    chart = window.scenarios.chart
+    renderer = chart.renderer
+    window.scenarios.set_boards(10)
+    assert renderer.x_max == pytest.approx(12)  # la cantidad elegida + 20 %
+    visible = renderer.visible()
+    assert visible[0].boards == 1 and visible[-1].boards == 10  # la curva llega solo hasta la barra
+    assert [p.boards for p in visible] == list(range(1, 11))  # cada placa se ve en las primeras cantidades
+    rect = renderer.plots(chart.width(), chart.height())[0]
+    assert renderer.x_of(10, rect) == pytest.approx(rect.left() + rect.width() / 1.2)
+    assert renderer.boards_at(rect.right(), rect) == 12  # un clic a la derecha sigue avanzando
+    assert renderer.nearest(12).boards == 10  # la lectura no pasa de la curva dibujada
+    window.scenarios.set_boards(400)
+    assert renderer.x_max == pytest.approx(480) and renderer.visible()[-1].boards == 400
+    chart.grab()  # se dibuja sin errores
+    window.scenarios.slider.setValue(0)
+    assert chart.cursor == 1 and renderer.visible()[-1].boards == 1
+    chart.grab()
 
 
 def wait_cart(qtbot, window, timeout=10000):
@@ -339,3 +375,40 @@ def test_search_dialog_assigns_part(make_window, qtbot, example_bom):
     dialog.table.selectRow(row)
     dialog._accept_selected()
     assert dialog.selected_part.mouser_pn == "603-RC0603FR-074K7L"
+
+
+def test_landed_cost_checkbox(make_window, qtbot, example_bom):
+    window = loaded(qtbot, make_window(), example_bom)
+    assert not window.landed_check.isChecked() and window.summary.landed is None
+    assert window.card_total.title.text() == "Total estimado" and "solo Mouser" in window.card_total.sub.text()
+    assert "942,25" in window.import_label.text() and "septiembre" in window.import_label.text()
+    goods = window.summary.goods
+    window.landed_check.setChecked(True)
+    qtbot.waitUntil(lambda: window.summary.landed is not None, timeout=2000)
+    cost = window.summary.landed
+    assert window.summary.total == cost.total > goods and cost.usd_rate == Decimal("942.25")
+    assert cost.customs_rate == Decimal("933.9")
+    assert window.card_total.title.text() == "Total puesto en Chile"
+    assert "desaduanamiento" in window.card_total.sub.text()
+    window.save_settings()
+    assert window.settings.landed_cost  # se recuerda para la próxima vez
+    dialog = window.show_landed_detail()
+    html = dialog.browser.toPlainText()
+    assert "Honorario de desaduanamiento" in html and "Total con todo incluido" in html
+    assert "dólar aduanero 933,90 CLP de septiembre" in html
+    # los escenarios también quedan puestos en Chile
+    window.main_tabs.setCurrentWidget(window.scenarios)
+    qtbot.waitUntil(lambda: bool(window.scenarios.chart.points), timeout=5000)
+    assert "puestos en Chile" in window.scenarios.note.text()
+
+
+def test_import_data_offline_uses_saved_rates(make_window, qtbot, example_bom):
+    saved = today_rates().to_json() | {"fetched_at": "2026-09-28T09:00:00"}
+    window = loaded(qtbot, make_window(landed_cost=True, import_rates=saved,
+                                       import_updater=lambda: ImportUpdate(rates_error="sin red")), example_bom)
+    assert window.summary.landed is not None and window.summary.landed.usd_rate == Decimal("942.25")
+    assert "Sin conexión" in window.import_label.text() and "Reintentar" in window.import_label.text()
+    never = loaded(qtbot, make_window(landed_cost=True, import_updater=lambda: ImportUpdate(rates_error="x")),
+                   example_bom)
+    assert never.summary.landed.setup.estimated_rates  # dólar de referencia hasta que haya conexión
+    assert "dólar de referencia" in never.import_label.text()

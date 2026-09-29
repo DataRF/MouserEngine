@@ -13,7 +13,7 @@ import os
 import re
 import sys
 import threading
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from datetime import date
 from pathlib import Path
 
@@ -77,10 +77,9 @@ class Settings:
     spares_pct: float = 0.0
     passive_spares_pct: float = 0.0
     optimize_breaks: bool = False
-    freight: float = 0.0
-    duty_pct: float = 0.0
-    vat_pct: float = 0.0
-    fx_rate: float = 0.0
+    landed_cost: bool = False  # precio con todo incluido (puesto en Chile)
+    import_rates: dict = field(default_factory=dict)  # último dólar observado y aduanero obtenidos
+    import_rules: dict = field(default_factory=dict)  # últimas reglas de importación descargadas
     usage_date: str = ""
     usage_count: int = 0
 

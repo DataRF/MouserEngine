@@ -11,10 +11,21 @@ def test_config_dir_override(tmp_path, monkeypatch):
 
 def test_roundtrip(tmp_path):
     path = tmp_path / "config.json"
-    s = Settings(api_key="abc", boards=25, vat_pct=19.0, optimize_breaks=True)
+    rates = {"usd": "942.25", "usd_date": "2026-09-29", "customs": "933.9", "customs_date": "2026-08-28"}
+    s = Settings(api_key="abc", boards=25, landed_cost=True, optimize_breaks=True, import_rates=rates)
     s.save(path)
     loaded = Settings.load(path)
-    assert (loaded.api_key, loaded.boards, loaded.vat_pct, loaded.optimize_breaks) == ("abc", 25, 19.0, True)
+    assert (loaded.api_key, loaded.boards, loaded.landed_cost, loaded.optimize_breaks) == ("abc", 25, True, True)
+    assert loaded.import_rates == rates and loaded.import_rules == {}
+
+
+def test_old_manual_costs_are_ignored(tmp_path):
+    # versiones anteriores guardaban flete, arancel, IVA y tipo de cambio ingresados a mano
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"freight": 40, "duty_pct": 6, "vat_pct": 19, "fx_rate": 950, "import_rates": [1]}),
+                    encoding="utf-8")
+    loaded = Settings.load(path)
+    assert not hasattr(loaded, "freight") and not loaded.landed_cost and loaded.import_rates == {}
 
 
 def test_load_ignores_unknown_and_bad_values(tmp_path):

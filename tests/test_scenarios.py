@@ -1,11 +1,13 @@
+from dataclasses import replace
 from decimal import Decimal
 
 import pytest
 
 from mouser_engine.bom import build_items, load_table
 from mouser_engine.config import DEFAULT_SCENARIOS, parse_quantities
+from mouser_engine.landed import ExchangeRates, ImportSetup, builtin_rules
 from mouser_engine.lookup import lookup_all
-from mouser_engine.models import QuoteParams
+from mouser_engine.models import BomItem, Part, PriceBreak, QuoteParams
 from mouser_engine.passives import Defaults
 from mouser_engine.quote import apply_lookup, queries_for, quote_all, specs_for, summarize
 from mouser_engine.scenarios import CostModel, scenario_table
@@ -30,7 +32,7 @@ def test_scenario_table_matches_quote_engine(items):
     params = QuoteParams(passive_spares_pct=10, freight=25, vat_pct=19)
     rows = scenario_table(items, params, [1, 10, 100])
     for row in rows:
-        p = QuoteParams(boards=row.boards, passive_spares_pct=10, freight=25, vat_pct=19)
+        p = QuoteParams(boards=row.boards, passive_spares_pct=10, freight=25, vat_pct=19, assume_stock=True)
         summary = summarize(items, quote_all(items, p), p)
         assert row.goods == summary.goods and row.total == summary.total
         assert row.unit == (summary.goods / row.boards).quantize(Decimal("0.0001"))
@@ -47,7 +49,7 @@ def test_cost_model_matches_exact_engine(items, optimize, spares):
     model = CostModel(items, base)
     for boards in (1, 2, 3, 7, 9, 10, 11, 25, 88, 100, 101, 150, 333, 500, 1000, 3000):
         p = QuoteParams(boards=boards, spares_pct=spares, passive_spares_pct=10, optimize_breaks=optimize,
-                        freight=12.5, duty_pct=6, vat_pct=19)
+                        freight=12.5, duty_pct=6, vat_pct=19, assume_stock=True)
         quotes = quote_all(items, p)
         summary = summarize(items, quotes, p)
         point = model.point(boards)
@@ -76,3 +78,44 @@ def test_curve_changes_with_parameters(items):
     with_extras = CostModel(items, QuoteParams(freight=100, vat_pct=19)).point(100)
     assert with_extras.total == pytest.approx((plain.goods + 100) * 1.19, abs=0.02)
     assert with_extras.goods == plain.goods
+
+
+def _option(mouser_pn, stock, breaks):
+    return Part(mouser_pn=mouser_pn, mpn="X1", manufacturer="ACME", stock=stock,
+                price_breaks=[PriceBreak(q, Decimal(p), "USD") for q, p in breaks])
+
+
+def test_volume_analysis_assumes_stock():
+    # La opción más barata no tiene stock para 100; la compra real elige la que sí tiene, el análisis no.
+    item = BomItem(id=1, rows=[2], mpn="X1", manufacturer="ACME", qty_per_board=1, lookup_state="done",
+                   candidates=[_option("1-CHEAP", 50, ((1, "1.00"), (100, "0.50"))),
+                               _option("2-STOCK", 100_000, ((1, "1.20"), (100, "0.80")))])
+    real = summarize([item], quote_all([item], QuoteParams(boards=100)), QuoteParams(boards=100))
+    assert real.goods == Decimal("80.00")
+    row = scenario_table([item], QuoteParams(boards=100), [100])[0]
+    assert row.goods == Decimal("50.00") and row.short == 1  # la más conveniente; se avisa que hoy no hay stock
+    point = CostModel([item], QuoteParams()).point(100)
+    assert point.goods == 50.0 and point.short == 1
+    # optimizar por tramos tampoco se limita por el stock actual
+    optimized = CostModel([item], QuoteParams(optimize_breaks=True)).point(80)
+    assert optimized.goods == 50.0  # 100 unidades a 0,50 cuestan menos que 80 a 1,00
+
+
+@pytest.mark.parametrize("currency_rate", [("USD", None), ("CLP", "950")])
+def test_cost_model_matches_exact_engine_with_landed_cost(items, currency_rate):
+    currency, rate = currency_rate
+    if rate:  # la misma BOM con precios en pesos
+        for item in items:
+            item.candidates = [replace(p, price_breaks=[replace(b, price=(b.price * Decimal(rate)).quantize(
+                Decimal("0.01")), currency="CLP") for b in p.price_breaks]) for p in item.candidates]
+    setup = ImportSetup(builtin_rules(), ExchangeRates(usd=Decimal(950), customs=Decimal(940)))
+    base = QuoteParams(passive_spares_pct=10, landed=True, import_setup=setup)
+    model = CostModel(items, base)
+    rows = scenario_table(items, base, [1, 10, 100, 1000])
+    for row in rows:
+        point = model.point(row.boards)
+        assert row.currency == currency
+        assert point.total == pytest.approx(float(row.total), abs=0.02), row.boards
+        assert row.total > row.goods  # flete, aduana, IVA y desaduanamiento
+    # el costo fijo (flete y desaduanamiento) se reparte: por placa baja mucho con el volumen
+    assert rows[0].total_unit > 5 * rows[-1].total_unit

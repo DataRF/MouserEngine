@@ -1,5 +1,5 @@
 """MouserEngine: cotizador de BOM en tiempo real contra la API de Mouser."""
 
-__version__ = "1.2.1"
+__version__ = "1.3.0"
 APP_NAME = "MouserEngine"
 APP_TITLE = "MouserEngine – Cotizador de BOM Mouser"

@@ -18,6 +18,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from .config import config_dir
+from .landed import ImportSetup
 from .models import LEVEL_EXCLUDED, BomItem, ItemQuote, Part, QuoteParams
 from .passives import parse_spec
 from .quote import quote_all, summarize
@@ -214,7 +215,9 @@ def snapshot_to_json(snapshot: Snapshot) -> dict:
             "suggestions": [ref(p) for p in item.suggestions], "manual_part": ref(item.manual_part),
         })
         items.append(data)
-    params = {f.name: getattr(snapshot.params, f.name) for f in fields(QuoteParams)}
+    params = {f.name: getattr(snapshot.params, f.name) for f in fields(QuoteParams) if f.name != "import_setup"}
+    if snapshot.params.import_setup is not None:  # reglas y dólar con que se calculó el precio puesto en Chile
+        params["import_setup"] = snapshot.params.import_setup.to_json()
     return {
         "version": SNAPSHOT_VERSION,
         "bom_path": snapshot.bom_path,
@@ -255,7 +258,9 @@ def snapshot_from_json(data: dict) -> Snapshot:
             item.spec = parse_spec(item.designators, item.value, item.description, item.footprint, item.extra)
         items.append(item)
     saved = data.get("params") or {}
-    params = QuoteParams(**{f.name: saved[f.name] for f in fields(QuoteParams) if f.name in saved})
+    params = QuoteParams(**{f.name: saved[f.name] for f in fields(QuoteParams)
+                            if f.name in saved and f.name != "import_setup"})
+    params.import_setup = ImportSetup.from_json(saved.get("import_setup"))
     bom = data.get("bom") or {}
     return Snapshot(
         items=items, params=params, bom_path=str(data.get("bom_path") or ""), client=str(data.get("client") or ""),

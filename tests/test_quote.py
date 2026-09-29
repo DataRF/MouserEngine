@@ -1,8 +1,10 @@
+from dataclasses import replace
 from decimal import Decimal
 
 import pytest
 
 from mouser_engine.bom import build_items, load_table
+from mouser_engine.landed import ExchangeRates, ImportSetup, builtin_rules
 from mouser_engine.models import BomItem, Part, PriceBreak, QuoteParams
 from mouser_engine.mouser_api import LookupResult
 from mouser_engine.lookup import lookup_all
@@ -162,3 +164,29 @@ def test_clp_account_has_no_conversion_to_clp():
     summary = summarize([it], quote_all([it], params), params)
     assert summary.currency == "CLP" and summary.goods == Decimal("6000")
     assert summary.total_clp is None  # los precios ya están en pesos
+
+
+def test_summary_with_landed_cost(quoted):
+    setup = ImportSetup(builtin_rules(), ExchangeRates(usd=Decimal(950), customs=Decimal(940)))
+    plain = QuoteParams(boards=10, import_setup=setup)
+    s = summarize(quoted, quote_all(quoted, plain), plain)
+    assert s.landed is None and s.total == s.goods
+    assert s.total_clp == (s.total * 950).quantize(Decimal(1))  # dólar observado del día
+    params = replace(plain, landed=True)
+    s = summarize(quoted, quote_all(quoted, params), params)
+    cost = s.landed
+    assert cost is not None and s.total == cost.total > s.goods
+    assert (s.freight, s.duty, s.vat) == (cost.freight, cost.duty, cost.vat + cost.brokerage_vat)
+    assert s.total_clp == cost.total_clp
+    no_rules = replace(params, import_setup=None)
+    s = summarize(quoted, quote_all(quoted, no_rules), no_rules)
+    assert s.landed is None and s.total == s.goods
+
+
+def test_assume_stock_only_changes_the_choice_when_asked():
+    cheap = part("A", stock=5, breaks=((1, "0.50"),))
+    stocked = part("B", stock=1000, breaks=((1, "0.80"),))
+    it = item(candidates=[cheap, stocked])
+    assert quote_item(it, QuoteParams(boards=10)).part.mouser_pn == "B"
+    q = quote_item(it, QuoteParams(boards=10, assume_stock=True))
+    assert q.part.mouser_pn == "A" and q.level == "warn"  # igual avisa que hoy no alcanza el stock
