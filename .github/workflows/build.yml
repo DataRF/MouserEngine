@@ -15,8 +15,8 @@ jobs:
     name: Pruebas (Linux)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -34,8 +34,8 @@ jobs:
     needs: tests
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -54,7 +54,7 @@ jobs:
           $proc = Start-Process -FilePath "dist\MouserEngine.exe" -ArgumentList "--self-test" -Wait -PassThru
           Get-Content (Join-Path $env:TEMP "mouser_engine_selftest.log")
           if ($proc.ExitCode -ne 0) { throw "La autoprueba falló (código $($proc.ExitCode))" }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: MouserEngine-windows
           path: dist/MouserEngine.exe
