@@ -1796,18 +1796,21 @@ HELP_TEXT = """<b>1. Configure su API key</b> (Herramientas → Configuración).
 <b>2. Abra el BOM</b> (Excel o CSV) o arrástrelo a la ventana. Revise las columnas detectadas y presione
 «Importar». Las líneas con el mismo número de parte se agrupan en una sola compra.<br><br>
 <b>3. Ajuste la cantidad de placas y la merma.</b> Los totales se recalculan al instante con los tramos de
-precio de Mouser (mínimo de compra y múltiplo incluidos).<br><br>
+precio de Mouser (mínimo de compra y múltiplo incluidos). Active <b>«Precio con todo incluido»</b> para ver
+el costo puesto en Chile: flete de Mouser, derechos de aduana, IVA y desaduanamiento de DHL, con el dólar
+del día (se obtiene solo al abrir la aplicación).<br><br>
 <b>4. Revise las partes con advertencias o problemas</b> (sin stock, obsoletas, no encontradas…). En la
 pestaña «Opciones en Mouser» puede elegir otra presentación, y con «Buscar en Mouser» puede asignar una
 parte a líneas sin número de parte o no encontradas.<br><br>
-<b>5. Escenarios de volumen:</b> en la pestaña del mismo nombre, mueva la barra de cantidad para ver el
-costo por placa y el costo total de 1 a 1.000 placas (o el máximo que elija), y compare las cantidades de
-la tabla. Las bajas de 10 % o más aparecen en verde.<br><br>
+<b>5. Escenarios de volumen:</b> en la pestaña del mismo nombre, mueva la barra de cantidad: el gráfico de
+costo por placa y costo total se va formando desde 1 placa hasta la cantidad elegida (máximo 1.000 o el
+que elija). Compare las cantidades de la tabla; las bajas de 10 % o más aparecen en verde. El análisis
+supone que hay stock de todas las partes.<br><br>
 <b>6. Resistencias y condensadores sin MPN:</b> se eligen solos según valor, encapsulado, tolerancia,
 potencia, tensión y dieléctrico: la opción más conveniente que cumple o supera lo pedido, de un fabricante
 reconocido. Puede cambiarla en «Opciones en Mouser».<br><br>
-<b>7. Exporte</b> la cotización a Excel, el <b>informe PDF para el cliente</b> (análisis de costo por volumen,
-Ctrl+P) o el carro en CSV, o use <b>«Crear carro en Mouser»</b> para dejar el carro armado en su cuenta
+<b>7. Exporte</b> la cotización a Excel, el <b>informe PDF para el cliente</b> (análisis comercial del costo
+por volumen, sin el BOM; Ctrl+P) o el carro en CSV, o use <b>«Crear carro en Mouser»</b> para dejar el carro armado en su cuenta
 (necesita la clave de Cart API). La aplicación nunca envía pedidos.<br><br>
 <b>8. Historial:</b> Ctrl+S guarda la cotización en este computador (también se guarda al exportar a Excel
 y al crear el carro). En «Historial» puede reabrirla, compararla con los precios de hoy o exportarla.<br><br>
