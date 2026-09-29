@@ -1,0 +1,16 @@
+Proyecto: Placa de control v2;;;;
+Revisión: B;;;;
+;;;;
+Designador;Cantidad;Fabricante;N° de parte;Descripción
+C1, C2, C3, C4, C5, C6, C7, C8;8;Murata;GRM188R71C104KA01D;Condensador cerámico 100nF 16V X7R 0603
+R1-R10;10;Yageo;RC0603FR-0710KL;Resistencia 10k 1% 0603
+U1;1;STMicroelectronics;STM32F103C8T6;MCU ARM Cortex-M3 64KB LQFP48
+U2;1;Texas Instruments;LM358DR;Amplificador operacional dual SOIC-8
+D1, D2;2;Diodes Inc;1N4148W-7-F;Diodo de conmutación SOD-123
+D3;1;;1N4148;Diodo de conmutación axial
+U3;1;Maxim;MAX232CPE+;Transceptor RS-232 DIP-16
+D4;1;Nexperia;BAT54S,215;Diodo Schottky doble SOT-23
+U4;1;Espressif;ESP32-WROOM-32E-N4;Módulo WiFi/Bluetooth
+J1;1;;XYZ-NOTREAL-1;Conector a medida
+R11;1;;;Resistencia 4.7k 1% 0603
+C9;0;Murata;GRM188R71C104KA01D;No montar

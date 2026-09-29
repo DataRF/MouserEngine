@@ -1,0 +1,237 @@
+[
+  {
+    "Availability": "1250000 In Stock",
+    "AvailabilityInStock": "1250000",
+    "AvailabilityOnOrder": [],
+    "DataSheetUrl": "https://example.com/datasheets/grm188.pdf",
+    "Description": "Multilayer Ceramic Capacitors MLCC - SMD/SMT 0.1uF 16V X7R 10% 0603",
+    "FactoryStock": "0",
+    "ImagePath": "",
+    "Category": "Multilayer Ceramic Capacitors MLCC - SMD/SMT",
+    "LeadTime": "16 Weeks",
+    "LifecycleStatus": null,
+    "Manufacturer": "Murata Electronics",
+    "ManufacturerPartNumber": "GRM188R71C104KA01D",
+    "Min": "1",
+    "Mult": "1",
+    "MouserPartNumber": "81-GRM188R71C104KA1D",
+    "ProductAttributes": [
+      {"AttributeName": "Packaging", "AttributeValue": "Reel"},
+      {"AttributeName": "Packaging", "AttributeValue": "Cut Tape"},
+      {"AttributeName": "Packaging", "AttributeValue": "MouseReel"}
+    ],
+    "PriceBreaks": [
+      {"Quantity": 1, "Price": "$0.10", "Currency": "USD"},
+      {"Quantity": 10, "Price": "$0.021", "Currency": "USD"},
+      {"Quantity": 100, "Price": "$0.009", "Currency": "USD"},
+      {"Quantity": 1000, "Price": "$0.005", "Currency": "USD"},
+      {"Quantity": 4000, "Price": "$0.004", "Currency": "USD"}
+    ],
+    "AlternatePackagings": null,
+    "ProductDetailUrl": "https://www.mouser.com/ProductDetail/81-GRM188R71C104KA1D",
+    "Reeling": true,
+    "ROHSStatus": "RoHS Compliant",
+    "SuggestedReplacement": "",
+    "MultiSimBlue": 0,
+    "InfoMessages": [],
+    "ProductCompliance": []
+  },
+  {
+    "Availability": "5000000 In Stock",
+    "AvailabilityInStock": "5000000",
+    "DataSheetUrl": "https://example.com/datasheets/rc0603.pdf",
+    "Description": "Thick Film Resistors - SMD 10K ohm 1% 0603",
+    "FactoryStock": "0",
+    "LeadTime": "10 Weeks",
+    "LifecycleStatus": null,
+    "Manufacturer": "YAGEO",
+    "ManufacturerPartNumber": "RC0603FR-0710KL",
+    "Min": "1",
+    "Mult": "1",
+    "MouserPartNumber": "603-RC0603FR-0710KL",
+    "ProductAttributes": [{"AttributeName": "Packaging", "AttributeValue": "Cut Tape"}],
+    "PriceBreaks": [
+      {"Quantity": 1, "Price": "$0.10", "Currency": "USD"},
+      {"Quantity": 10, "Price": "$0.012", "Currency": "USD"},
+      {"Quantity": 100, "Price": "$0.004", "Currency": "USD"},
+      {"Quantity": 1000, "Price": "$0.002", "Currency": "USD"},
+      {"Quantity": 5000, "Price": "$0.0012", "Currency": "USD"}
+    ],
+    "ProductDetailUrl": "https://www.mouser.com/ProductDetail/603-RC0603FR-0710KL",
+    "ROHSStatus": "RoHS Compliant"
+  },
+  {
+    "Availability": "3120 In Stock",
+    "AvailabilityInStock": "3120",
+    "DataSheetUrl": "https://example.com/datasheets/stm32f103.pdf",
+    "Description": "ARM Microcontrollers - MCU 32BIT Cortex M3 64KB Flash LQFP48",
+    "FactoryStock": "0",
+    "LeadTime": "18 Weeks",
+    "LifecycleStatus": null,
+    "Manufacturer": "STMicroelectronics",
+    "ManufacturerPartNumber": "STM32F103C8T6",
+    "Min": "1",
+    "Mult": "1",
+    "MouserPartNumber": "511-STM32F103C8T6",
+    "ProductAttributes": [{"AttributeName": "Packaging", "AttributeValue": "Tray"}],
+    "PriceBreaks": [
+      {"Quantity": 1, "Price": "$7.45", "Currency": "USD"},
+      {"Quantity": 10, "Price": "$6.71", "Currency": "USD"},
+      {"Quantity": 25, "Price": "$6.36", "Currency": "USD"},
+      {"Quantity": 100, "Price": "$5.60", "Currency": "USD"},
+      {"Quantity": 250, "Price": "$5.33", "Currency": "USD"},
+      {"Quantity": 1000, "Price": "$4.82", "Currency": "USD"}
+    ],
+    "ProductDetailUrl": "https://www.mouser.com/ProductDetail/511-STM32F103C8T6",
+    "ROHSStatus": "RoHS Compliant"
+  },
+  {
+    "Availability": "On Order",
+    "AvailabilityInStock": null,
+    "AvailabilityOnOrder": [{"Quantity": 2500, "Date": "2026-11-10T00:00:00"}],
+    "DataSheetUrl": "https://example.com/datasheets/lm358.pdf",
+    "Description": "Operational Amplifiers - Op Amps Dual Op Amp SOIC-8",
+    "FactoryStock": "0",
+    "LeadTime": "6 Weeks",
+    "LifecycleStatus": null,
+    "Manufacturer": "Texas Instruments",
+    "ManufacturerPartNumber": "LM358DR",
+    "Min": "1",
+    "Mult": "1",
+    "MouserPartNumber": "595-LM358DR",
+    "ProductAttributes": [{"AttributeName": "Packaging", "AttributeValue": "Cut Tape"}],
+    "PriceBreaks": [
+      {"Quantity": 1, "Price": "$0.42", "Currency": "USD"},
+      {"Quantity": 10, "Price": "$0.29", "Currency": "USD"},
+      {"Quantity": 100, "Price": "$0.18", "Currency": "USD"},
+      {"Quantity": 2500, "Price": "$0.11", "Currency": "USD"}
+    ],
+    "ProductDetailUrl": "https://www.mouser.com/ProductDetail/595-LM358DR",
+    "ROHSStatus": "RoHS Compliant"
+  },
+  {
+    "Availability": "20450 In Stock",
+    "AvailabilityInStock": "20450",
+    "Description": "Diodes - General Purpose, Power, Switching 100V 300mW SOD-123",
+    "LeadTime": "12 Weeks",
+    "Manufacturer": "Diodes Incorporated",
+    "ManufacturerPartNumber": "1N4148W-7-F",
+    "Min": "1",
+    "Mult": "1",
+    "MouserPartNumber": "621-1N4148W-F",
+    "PriceBreaks": [
+      {"Quantity": 1, "Price": "$0.12", "Currency": "USD"},
+      {"Quantity": 10, "Price": "$0.062", "Currency": "USD"},
+      {"Quantity": 100, "Price": "$0.03", "Currency": "USD"},
+      {"Quantity": 3000, "Price": "$0.017", "Currency": "USD"}
+    ],
+    "ProductDetailUrl": "https://www.mouser.com/ProductDetail/621-1N4148W-F",
+    "ROHSStatus": "RoHS Compliant"
+  },
+  {
+    "Availability": "9800 In Stock",
+    "AvailabilityInStock": "9800",
+    "Description": "Diodes - General Purpose, Power, Switching 100V 200mA DO-35",
+    "LeadTime": "8 Weeks",
+    "Manufacturer": "onsemi",
+    "ManufacturerPartNumber": "1N4148",
+    "Min": "1",
+    "Mult": "1",
+    "MouserPartNumber": "512-1N4148",
+    "PriceBreaks": [
+      {"Quantity": 1, "Price": "$0.10", "Currency": "USD"},
+      {"Quantity": 100, "Price": "$0.035", "Currency": "USD"}
+    ],
+    "ProductDetailUrl": "https://www.mouser.com/ProductDetail/512-1N4148",
+    "ROHSStatus": "RoHS Compliant"
+  },
+  {
+    "Availability": "15200 In Stock",
+    "AvailabilityInStock": "15200",
+    "Description": "Diodes - General Purpose, Power, Switching 100V 300mA DO-35",
+    "LeadTime": "10 Weeks",
+    "Manufacturer": "Vishay Semiconductors",
+    "ManufacturerPartNumber": "1N4148",
+    "Min": "1",
+    "Mult": "1",
+    "MouserPartNumber": "78-1N4148",
+    "PriceBreaks": [
+      {"Quantity": 1, "Price": "$0.09", "Currency": "USD"},
+      {"Quantity": 100, "Price": "$0.03", "Currency": "USD"}
+    ],
+    "ProductDetailUrl": "https://www.mouser.com/ProductDetail/78-1N4148",
+    "ROHSStatus": "RoHS Compliant"
+  },
+  {
+    "Availability": "Non-Stocked",
+    "AvailabilityInStock": "0",
+    "Description": "RS-232 Interface IC 5V Dual RS-232 Transceiver",
+    "LeadTime": "",
+    "LifecycleStatus": "Obsolete",
+    "Manufacturer": "Analog Devices / Maxim Integrated",
+    "ManufacturerPartNumber": "MAX232CPE+",
+    "Min": "1",
+    "Mult": "1",
+    "MouserPartNumber": "700-MAX232CPE",
+    "PriceBreaks": [],
+    "ProductDetailUrl": "https://www.mouser.com/ProductDetail/700-MAX232CPE",
+    "ROHSStatus": "RoHS Compliant",
+    "SuggestedReplacement": "MAX232ECPE+"
+  },
+  {
+    "Availability": "48000 In Stock",
+    "AvailabilityInStock": "48000",
+    "Description": "Schottky Diodes & Rectifiers BAT54S/SOT23/TO-236AB",
+    "LeadTime": "7 Weeks",
+    "Manufacturer": "Nexperia",
+    "ManufacturerPartNumber": "BAT54S,215",
+    "Min": "3000",
+    "Mult": "3000",
+    "MouserPartNumber": "771-BAT54S-T/R",
+    "ProductAttributes": [{"AttributeName": "Packaging", "AttributeValue": "Reel"}],
+    "PriceBreaks": [
+      {"Quantity": 3000, "Price": "$0.019", "Currency": "USD"},
+      {"Quantity": 9000, "Price": "$0.016", "Currency": "USD"}
+    ],
+    "ProductDetailUrl": "https://www.mouser.com/ProductDetail/771-BAT54S-T-R",
+    "ROHSStatus": "RoHS Compliant"
+  },
+  {
+    "Availability": "150 In Stock",
+    "AvailabilityInStock": "150",
+    "AvailabilityOnOrder": [{"Quantity": 1000, "Date": "2026-10-20T00:00:00"}],
+    "Description": "WiFi Modules (802.11) SMD Module ESP32-D0WD-V3 4MB",
+    "LeadTime": "12 Weeks",
+    "LifecycleStatus": "New Product",
+    "Manufacturer": "Espressif Systems",
+    "ManufacturerPartNumber": "ESP32-WROOM-32E-N4",
+    "Min": "1",
+    "Mult": "1",
+    "MouserPartNumber": "356-ESP32WRM32EN4",
+    "PriceBreaks": [
+      {"Quantity": 1, "Price": "$3.40", "Currency": "USD"},
+      {"Quantity": 10, "Price": "$3.10", "Currency": "USD"},
+      {"Quantity": 100, "Price": "$2.85", "Currency": "USD"}
+    ],
+    "ProductDetailUrl": "https://www.mouser.com/ProductDetail/356-ESP32WRM32EN4",
+    "ROHSStatus": "RoHS Compliant"
+  },
+  {
+    "Availability": "72000 In Stock",
+    "AvailabilityInStock": "72000",
+    "Description": "Thick Film Resistors - SMD 4.7K ohm 1% 0603",
+    "LeadTime": "10 Weeks",
+    "Manufacturer": "YAGEO",
+    "ManufacturerPartNumber": "RC0603FR-074K7L",
+    "Min": "1",
+    "Mult": "1",
+    "MouserPartNumber": "603-RC0603FR-074K7L",
+    "PriceBreaks": [
+      {"Quantity": 1, "Price": "$0.10", "Currency": "USD"},
+      {"Quantity": 10, "Price": "$0.012", "Currency": "USD"},
+      {"Quantity": 100, "Price": "$0.004", "Currency": "USD"}
+    ],
+    "ProductDetailUrl": "https://www.mouser.com/ProductDetail/603-RC0603FR-074K7L",
+    "ROHSStatus": "RoHS Compliant"
+  }
+]
