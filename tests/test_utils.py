@@ -28,9 +28,27 @@ from mouser_engine.utils import (
     ("12 In Stock", "", "12"),
     (0.25, "", "0.25"),
     (3, "", "3"),
+    # Peso chileno: Mouser usa la convención local (punto de miles, coma decimal)
+    ("$1.234", "CLP", "1234"),
+    ("$987", "CLP", "987"),
+    ("$12,35", "CLP", "12.35"),
+    ("$1.234,56", "CLP", "1234.56"),
+    ("$1.234.567", "CLP", "1234567"),
+    ("$0,123", "CLP", "0.123"),
+    ("$0.123", "CLP", "0.123"),  # un 0 no lleva separador de miles
+    ("$1,234", "CLP", "1.234"),
+    ("$1.234", "USD", "1.234"),
+    ("6,85 €", "EUR", "6.85"),
+    ("6,85 €", "", "6.85"),
 ])
 def test_parse_number(text, currency, expected):
     assert parse_number(text, currency) == Decimal(expected)
+
+
+def test_parse_number_decimal_override():
+    assert parse_number("$1.234", "", decimal=",") == Decimal("1234")
+    assert parse_number("$1.234", "", decimal=".") == Decimal("1.234")
+    assert parse_number("$1,234", "", decimal=",") == Decimal("1.234")
 
 
 @pytest.mark.parametrize("text", [None, "", "N/A", "—"])

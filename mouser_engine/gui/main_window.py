@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
@@ -12,7 +13,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import QModelIndex, QSettings, QSize, Qt, QTimer, QUrl, Slot
+from PySide6.QtCore import QLocale, QModelIndex, QSettings, QSize, Qt, QTimer, QUrl, Slot
 from PySide6.QtGui import QAction, QDesktopServices, QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -55,7 +56,16 @@ from ..config import Settings
 from ..export import export_cart_csv, export_excel
 from ..formatting import fmt_int, fmt_money, fmt_num
 from ..fx import fetch_clp_rate
-from ..history import ComparisonRow, HistoryEntry, HistoryError, HistoryStore, PriceRecord, Snapshot, compare_quotes
+from ..history import (
+    ComparisonRow,
+    HistoryEntry,
+    HistoryError,
+    HistoryStore,
+    PriceRecord,
+    Snapshot,
+    compare_quotes,
+    snapshot_to_json,
+)
 from ..models import LEVEL_EXCLUDED, BomItem, ItemQuote, Part, QuoteParams, QuoteSummary
 from ..mouser_api import (
     DAILY_LIMIT,
@@ -274,6 +284,10 @@ class MainWindow(QMainWindow):
         self.act_help.triggered.connect(self.show_help)
         self.act_about = QAction("Acerca de MouserEngine", self)
         self.act_about.triggered.connect(self.show_about)
+        self.act_diagnostic = QAction("Guardar datos para diagnóstico…", self)
+        self.act_diagnostic.setToolTip("Guarda la cotización con las respuestas originales de Mouser (sin sus claves "
+                                       "de API) para revisar un problema")
+        self.act_diagnostic.triggered.connect(lambda: self.export_diagnostic())
         self.act_shortcut = QAction("Crear acceso directo en el escritorio", self)
         self.act_shortcut.triggered.connect(self.create_desktop_shortcut)
         self.act_quit = QAction("Salir", self)
@@ -306,6 +320,8 @@ class MainWindow(QMainWindow):
             tools.addAction(self.act_shortcut)
         help_menu = menu.addMenu("A&yuda")
         help_menu.addAction(self.act_help)
+        help_menu.addAction(self.act_diagnostic)
+        help_menu.addSeparator()
         help_menu.addAction(self.act_about)
 
         toolbar = QToolBar("Principal", self)
@@ -711,6 +727,11 @@ class MainWindow(QMainWindow):
         if s.total_clp is not None:
             sub = f"≈ CLP {fmt_int(s.total_clp)} · " + sub
         self.card_total.set(fmt_money(s.total, cur), sub)
+        in_clp = cur == "CLP"  # la cuenta de Mouser ya cotiza en pesos: no hay conversión que hacer
+        self.fx_spin.setEnabled(not in_clp)
+        self.fx_button.setEnabled(not in_clp)
+        self.fx_spin.setToolTip("Mouser ya entrega los precios en pesos chilenos" if in_clp
+                                else "Pesos chilenos por unidad de la moneda de Mouser (0 = no convertir)")
         pending = f" · {s.pending} pendientes" if s.pending else ""
         self.card_status.set(
             f"{s.ok} de {s.included} OK",
@@ -1233,6 +1254,53 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Informe PDF generado ({pages} páginas).", 10000)
         self._offer_open(path, "Informe generado",
                          f"Informe para el cliente de {pages} {'página' if pages == 1 else 'páginas'}.")
+        return path
+
+    def export_diagnostic(self, path: str | None = None) -> str | None:
+        """JSON con el BOM, los parámetros y las respuestas originales de Mouser, para revisar un problema.
+
+        Nunca incluye las claves de API.
+        """
+        if not self.items:
+            QMessageBox.information(self, "Datos para diagnóstico", "Abra un BOM y consulte precios primero.")
+            return None
+        if not path:
+            stem = Path(self.table_doc.path).stem if self.table_doc and self.table_doc.path else "BOM"
+            suggested = Path(self.settings.last_dir or Path.home()) / (
+                f"Diagnostico_MouserEngine_{stem}_{datetime.now().strftime('%Y%m%d_%H%M')}.json")
+            path, _ = QFileDialog.getSaveFileName(self, "Guardar datos para diagnóstico", str(suggested),
+                                                  "JSON (*.json)")
+            if not path:
+                return None
+        if not path.lower().endswith(".json"):
+            path += ".json"
+        s = self.settings
+        data = {
+            "app": APP_NAME,
+            "version": __version__,
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "platform": sys.platform,
+            "locale": QLocale.system().name(),
+            "currency": self.summary.currency,
+            "settings": {  # solo parámetros de cálculo: nunca las claves de API
+                "scenario_quantities": s.scenario_quantities, "scenario_max": s.scenario_max,
+                "passives_enabled": s.passives_enabled, "res_tolerance_default": s.res_tolerance_default,
+                "cap_tolerance_default": s.cap_tolerance_default, "cap_voltage_default": s.cap_voltage_default,
+                "batch_size": s.batch_size, "fuzzy_search": s.fuzzy_search,
+            },
+            "snapshot": snapshot_to_json(self.snapshot()),
+        }
+        text = json.dumps(data, ensure_ascii=False, separators=(",", ":"), default=str)
+        for secret in (s.effective_api_key, s.effective_cart_api_key, s.api_key, s.cart_api_key):
+            if secret:
+                text = text.replace(secret, "***")
+        try:
+            Path(path).write_text(text, encoding="utf-8")
+        except OSError as exc:
+            QMessageBox.warning(self, "No se pudo guardar", str(exc))
+            return None
+        self._offer_open(path, "Datos para diagnóstico guardados",
+                         "Contiene el BOM, los parámetros y las respuestas de Mouser; no incluye sus claves de API.")
         return path
 
     def export_cart(self, path: str | None = None) -> str | None:

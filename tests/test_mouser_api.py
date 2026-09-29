@@ -63,6 +63,30 @@ def test_part_parsing_edge_cases():
     assert Part.from_api({"Availability": "1,234 In Stock"}).stock == 1234
 
 
+def test_clp_price_breaks_use_chilean_format():
+    part = Part.from_api({
+        "MouserPartNumber": "511-STM32F103C8T6", "ManufacturerPartNumber": "STM32F103C8T6",
+        "PriceBreaks": [{"Quantity": 1, "Price": "$6.437", "Currency": "CLP"},
+                        {"Quantity": 10, "Price": "$5.824", "Currency": "CLP"},
+                        {"Quantity": 100, "Price": "$987", "Currency": "CLP"},
+                        {"Quantity": 1000, "Price": "$812,50", "Currency": "CLP"}],
+    })
+    assert [b.price for b in part.price_breaks] == [Decimal("6437"), Decimal("5824"), Decimal("987"),
+                                                     Decimal("812.50")]
+    assert part.currency == "CLP" and part.price_breaks[0].text == "$6.437"
+
+
+def test_price_breaks_fall_back_to_the_consistent_format():
+    # Sin moneda conocida, «$1.050» parecería 1,05; como un tramo mayor no puede costar más (987),
+    # se usa la convención que da tramos coherentes.
+    part = Part.from_api({"MouserPartNumber": "X", "PriceBreaks": [
+        {"Quantity": 1, "Price": "$1.050"}, {"Quantity": 10, "Price": "$987"}, {"Quantity": 100, "Price": "$845,5"}]})
+    assert [b.price for b in part.price_breaks] == [Decimal("1050"), Decimal("987"), Decimal("845.5")]
+    usd = Part.from_api({"MouserPartNumber": "Y", "PriceBreaks": [
+        {"Quantity": 1, "Price": "$1,050.00", "Currency": "USD"}, {"Quantity": 10, "Price": "$987.00", "Currency": "USD"}]})
+    assert [b.price for b in usd.price_breaks] == [Decimal("1050.00"), Decimal("987.00")]
+
+
 def test_invalid_key_raises_auth_error(server):
     client = make_client(server, key="otra")
     with pytest.raises(MouserAuthError, match="Search API"):

@@ -152,3 +152,13 @@ def test_lookup_error_is_reported():
     apply_lookup([it], {"X1": LookupResult("X1", error="Mouser informó un error: x")})
     q = quote_item(it, QuoteParams())
     assert it.lookup_state == "error" and q.status == "Error de consulta"
+
+
+def test_clp_account_has_no_conversion_to_clp():
+    part = Part.from_api({"MouserPartNumber": "1-A", "ManufacturerPartNumber": "A", "AvailabilityInStock": "100",
+                          "PriceBreaks": [{"Quantity": 1, "Price": "$1.000", "Currency": "CLP"}]})
+    it = BomItem(id=1, rows=[1], mpn="A", qty_per_board=2, candidates=[part], lookup_state="done")
+    params = QuoteParams(boards=3, fx_rate=950)
+    summary = summarize([it], quote_all([it], params), params)
+    assert summary.currency == "CLP" and summary.goods == Decimal("6000")
+    assert summary.total_clp is None  # los precios ya están en pesos

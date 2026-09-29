@@ -7,10 +7,17 @@ import re
 import unicodedata
 from decimal import Decimal, InvalidOperation
 
-# Monedas en que Mouser formatea con coma como separador de miles ("$1,234.50").
+# Mouser formatea los precios con la convención local de la cuenta (p. ej. "6,85 €" en Alemania).
+# Monedas con coma como separador de miles y punto decimal ("$1,234.50").
 _COMMA_THOUSANDS_CURRENCIES = {
     "USD", "GBP", "JPY", "CNY", "RMB", "INR", "CAD", "AUD", "NZD", "HKD", "SGD",
     "TWD", "MXN", "ILS", "KRW", "THB", "PHP", "MYR", "ZAR",
+}
+# Monedas con punto (o espacio) como separador de miles y coma decimal: el peso chileno se escribe
+# "$1.234" (mil doscientos treinta y cuatro) y "$12,35".
+_COMMA_DECIMAL_CURRENCIES = {
+    "CLP", "ARS", "COP", "BRL", "UYU", "PYG", "EUR", "DKK", "NOK", "SEK", "PLN", "CZK", "HUF", "RON",
+    "BGN", "HRK", "TRY", "IDR", "VND", "RUB", "UAH",
 }
 
 _NUMBER_RE = re.compile(r"[-+]?\d[\d.,'\s  ]*")
@@ -50,14 +57,32 @@ def clean_cell(value: object) -> str:
     return str(value).replace(" ", " ").strip()
 
 
-def _comma_is_thousands(original: str, currency: str) -> bool:
-    if currency and currency.upper() in _COMMA_THOUSANDS_CURRENCIES:
-        return True
-    return any(sym in original for sym in ("$", "£", "¥", "₹"))
+def decimal_separator(original: str, currency: str = "") -> str | None:
+    """Separador decimal esperado para un monto: por la moneda y, si no se sabe, por el símbolo."""
+    code = (currency or "").strip().upper()
+    if code in _COMMA_DECIMAL_CURRENCIES:
+        return ","
+    if code in _COMMA_THOUSANDS_CURRENCIES:
+        return "."
+    if "€" in original:
+        return ","
+    if any(sym in original for sym in ("$", "£", "¥", "₹")):
+        return "."
+    return None
 
 
-def parse_number(value: object, currency: str = "") -> Decimal | None:
-    """Convierte textos como "$1,234.50", "0,123 €", "1.234,5" o "12 In Stock" a Decimal."""
+def _is_thousands_group(integer: str, fraction: str) -> bool:
+    """"1.234" o "12,345": parte entera de 1 a 3 cifras (sin 0 inicial) y grupo de 3 cifras."""
+    return len(fraction) == 3 and 1 <= len(integer.lstrip("+-")) <= 3 and not integer.lstrip("+-").startswith("0")
+
+
+def parse_number(value: object, currency: str = "", decimal: str | None = None) -> Decimal | None:
+    """Convierte textos como "$1,234.50", "0,123 €", "1.234,5" o "12 In Stock" a Decimal.
+
+    Cuando el texto tiene un solo separador ("1.234" o "1,234") es ambiguo: se resuelve con
+    `decimal` (si se indica) o con la convención de la moneda ("$1.234" en CLP son 1.234 pesos,
+    en USD son 1,234 dólares).
+    """
     if value is None:
         return None
     if isinstance(value, bool):
@@ -75,6 +100,7 @@ def parse_number(value: object, currency: str = "") -> Decimal | None:
     num = re.sub(r"[\s  ']", "", match.group(0)).rstrip(".,")
     if not num or num in "+-":
         return None
+    decimal = decimal or decimal_separator(original, currency)
     if "," in num and "." in num:
         if num.rfind(",") > num.rfind("."):
             num = num.replace(".", "").replace(",", ".")
@@ -84,12 +110,16 @@ def parse_number(value: object, currency: str = "") -> Decimal | None:
         groups = num.split(",")
         if len(groups) > 2:
             num = num.replace(",", "")
-        elif len(groups[1]) == 3 and _comma_is_thousands(original, currency):
+        elif decimal == "." and _is_thousands_group(groups[0], groups[1]):
             num = num.replace(",", "")
         else:
             num = num.replace(",", ".")
-    elif num.count(".") > 1:
-        num = num.replace(".", "")
+    elif "." in num:
+        groups = num.split(".")
+        if len(groups) > 2:
+            num = num.replace(".", "")
+        elif decimal == "," and _is_thousands_group(groups[0], groups[1]):
+            num = num.replace(".", "")
     try:
         return Decimal(num)
     except InvalidOperation:
