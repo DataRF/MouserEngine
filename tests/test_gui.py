@@ -1,3 +1,4 @@
+import json
 import threading
 import time
 import urllib.error
@@ -11,6 +12,7 @@ from mouser_engine.gui.dialogs import ImportDialog, SearchDialog
 from mouser_engine.gui.items_model import COL
 from mouser_engine.gui.main_window import MainWindow
 from mouser_engine.gui.workers import Worker, WorkerPool
+from mouser_engine.history import snapshot_from_json
 from mouser_engine.lookup import LookupBundle
 from mouser_engine.mouser_api import MouserClient, RateLimiter
 
@@ -197,6 +199,18 @@ def test_client_report_from_window(make_window, qtbot, example_bom, tmp_path):
     assert (tmp_path / "informe.pdf").read_bytes().startswith(b"%PDF")
     entry = window.history.entries()[0]
     assert entry.reason == "pdf" and entry.client == "ACME"
+
+
+def test_export_diagnostic_never_includes_keys(make_window, qtbot, example_bom, tmp_path):
+    window = loaded(qtbot, make_window(cart_api_key="cart-key"), example_bom)
+    assert window.export_diagnostic(str(tmp_path / "diag")) == str(tmp_path / "diag.json")
+    text = (tmp_path / "diag.json").read_text(encoding="utf-8")
+    assert "test-key" not in text and "cart-key" not in text
+    data = json.loads(text)
+    assert data["version"] and data["currency"] == "USD" and "api_key" not in data["settings"]
+    restored = snapshot_from_json(data["snapshot"])  # permite reproducir el caso con los datos reales
+    assert len(restored.items) == len(window.items)
+    assert any(item.candidates and item.candidates[0].raw for item in restored.items)
 
 
 def test_scenarios_tab(make_window, qtbot, example_bom):

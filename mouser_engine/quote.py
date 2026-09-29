@@ -342,7 +342,7 @@ def summarize(items: list[BomItem], quotes: list[ItemQuote], params: QuoteParams
     s.duty = money(base * _pct(params.duty_pct))
     s.vat = money((base + s.duty) * _pct(params.vat_pct))
     s.total = money(base + s.duty + s.vat)
-    if params.fx_rate and params.fx_rate > 0:
+    if params.fx_rate and params.fx_rate > 0 and s.currency != "CLP":  # en CLP no hay nada que convertir
         s.total_clp = (s.total * Decimal(str(params.fx_rate))).quantize(Decimal(1), rounding=ROUND_HALF_UP)
     return s
 

@@ -205,6 +205,19 @@ cubre hasta 10 números de parte, así que un BOM de 200 líneas usa unas 20 con
 usan entre 1 y 3 consultas por especificación distinta. La aplicación respeta el límite por minuto
 automáticamente y muestra las consultas del día en el panel izquierdo.
 
+### Moneda y formato de los precios
+
+Mouser entrega los precios en la moneda de la cuenta y con su formato local. Por ejemplo, en pesos
+chilenos `$1.234` son mil doscientos treinta y cuatro pesos. La aplicación lee cada precio según su
+moneda y verifica que los tramos no suban de precio con la cantidad. Si la cuenta ya cotiza en CLP, el
+campo «Cambio a CLP» se desactiva.
+
+### Datos para diagnóstico
+
+Si algo no cuadra, use **Ayuda → Guardar datos para diagnóstico…**. Se genera un archivo JSON con el BOM,
+los parámetros y las respuestas originales de Mouser, para reproducir el caso. **No incluye las claves de
+API.**
+
 ### Qué no incluye el total
 
 El subtotal corresponde solo a los componentes, según Mouser en el momento de la consulta. Flete,

@@ -102,6 +102,42 @@ def lead_time_label(text: str) -> str:
     return result
 
 
+def _breaks_with(raw_breaks: list, decimal: str | None) -> list[PriceBreak]:
+    breaks: list[PriceBreak] = []
+    for pb in raw_breaks:
+        if not isinstance(pb, dict):
+            continue
+        qty = parse_int(pb.get("Quantity"))
+        currency = str(pb.get("Currency") or "").strip()
+        price = parse_number(pb.get("Price"), currency, decimal=decimal)
+        if qty and qty > 0 and price is not None:
+            breaks.append(PriceBreak(qty, price, currency, str(pb.get("Price") or "")))
+    breaks.sort(key=lambda b: b.quantity)
+    return breaks
+
+
+def _non_increasing(breaks: list[PriceBreak]) -> bool:
+    return all(later.price <= earlier.price for earlier, later in zip(breaks, breaks[1:]))
+
+
+def parse_price_breaks(raw_breaks: list) -> list[PriceBreak]:
+    """Tramos de precio de la Search API, leídos con la convención numérica de su moneda.
+
+    Mouser formatea los precios con la convención local de la cuenta ("$1.234" en pesos chilenos,
+    "$1,234.00" en dólares). Si con esa convención un tramo mayor quedara más caro que uno menor
+    (imposible en una lista de precios), se prueba la otra convención y se usa la que da tramos
+    coherentes.
+    """
+    breaks = _breaks_with(raw_breaks, None)
+    if _non_increasing(breaks):
+        return breaks
+    for decimal in (",", "."):
+        other = _breaks_with(raw_breaks, decimal)
+        if len(other) == len(breaks) and _non_increasing(other):
+            return other
+    return breaks
+
+
 @dataclass
 class Part:
     """Un producto de Mouser tal como lo devuelve la Search API."""
@@ -162,14 +198,7 @@ class Part:
             value = raw.get(name)
             return "" if value is None else str(value).strip()
 
-        breaks: list[PriceBreak] = []
-        for pb in raw.get("PriceBreaks") or []:
-            qty = parse_int(pb.get("Quantity"))
-            currency = str(pb.get("Currency") or "").strip()
-            price = parse_number(pb.get("Price"), currency)
-            if qty and qty > 0 and price is not None:
-                breaks.append(PriceBreak(qty, price, currency, str(pb.get("Price") or "")))
-        breaks.sort(key=lambda b: b.quantity)
+        breaks = parse_price_breaks(raw.get("PriceBreaks") or [])
 
         availability = text("Availability")
         stock = parse_int(raw.get("AvailabilityInStock"))
