@@ -39,8 +39,9 @@ class ClientReportDialog(QDialog):
         self.setWindowTitle("Informe PDF para el cliente")
         self.setMinimumWidth(520)
         layout = QVBoxLayout(self)
-        intro = QLabel("Informe genérico, sin la plantilla de la empresa, con el análisis de costo de los componentes "
-                       "según la cantidad a fabricar. Usa los precios y el stock de la última consulta a Mouser.")
+        intro = QLabel("Informe genérico, sin la plantilla de la empresa, con el análisis comercial del costo de los "
+                       "componentes según la cantidad a fabricar (no incluye el BOM). Usa los precios y el stock de la "
+                       "última consulta a Mouser y, si está activo, el precio con todo incluido (puesto en Chile).")
         intro.setObjectName("Hint")
         intro.setWordWrap(True)
         layout.addWidget(intro)
@@ -57,7 +58,7 @@ class ClientReportDialog(QDialog):
         self.boards_spin.setGroupSeparatorShown(True)
         self.boards_spin.setSuffix(" placas")
         self.boards_spin.setValue(max(1, options.boards))
-        self.boards_spin.setToolTip("Cantidad para el resumen y el detalle de partes")
+        self.boards_spin.setToolTip("Cantidad para el resumen de costos")
         form.addRow("Cantidad de referencia:", self.boards_spin)
         self.quantities_edit = QLineEdit(", ".join(str(q) for q in options.quantities))
         self.quantities_edit.setToolTip("Cantidades de placas separadas por coma")
@@ -80,18 +81,14 @@ class ClientReportDialog(QDialog):
         form.addRow("Tamaño de hoja:", self.page_combo)
         layout.addLayout(form)
 
-        group = QGroupBox("Incluir además del resumen, el gráfico y los escenarios")
+        group = QGroupBox("Incluir además del resumen, el gráfico, los escenarios y los costos")
         group_layout = QVBoxLayout(group)
         sections = options.sections
         self.top_check = QCheckBox("Partes que más influyen en el costo")
         self.top_check.setChecked(sections.top_parts)
         self.observations_check = QCheckBox("Observaciones (stock, ciclo de vida, partes sin precio)")
         self.observations_check.setChecked(sections.observations)
-        self.matrix_check = QCheckBox("Precio unitario de cada parte según la cantidad")
-        self.matrix_check.setChecked(sections.price_matrix)
-        self.detail_check = QCheckBox("Detalle de partes")
-        self.detail_check.setChecked(sections.detail)
-        for check in (self.top_check, self.observations_check, self.matrix_check, self.detail_check):
+        for check in (self.top_check, self.observations_check):
             group_layout.addWidget(check)
         layout.addWidget(group)
 
@@ -114,6 +111,5 @@ class ClientReportDialog(QDialog):
             max_boards=max(self.max_spin.value(), max(quantities)),
             chart_mode=self.chart_combo.currentData(),
             page_size=self.page_combo.currentData(),
-            sections=ReportSections(self.top_check.isChecked(), self.observations_check.isChecked(),
-                                    self.matrix_check.isChecked(), self.detail_check.isChecked()),
+            sections=ReportSections(self.top_check.isChecked(), self.observations_check.isChecked()),
         )

@@ -22,7 +22,7 @@ from PySide6.QtWidgets import QApplication
 from .. import __version__
 from ..formatting import fmt_board_cost, fmt_int, fmt_money, fmt_num, fmt_price
 from ..models import LEVEL_ERROR, LEVEL_OK, LEVEL_WARN
-from ..report import ClientReport, ReportLine
+from ..report import ClientReport
 from .scenario_chart import ChartPainter
 from .theme import SERIES_1
 
@@ -269,10 +269,6 @@ def _level_color(level: str) -> str | None:
     return LEVEL_COLORS.get(level)
 
 
-def _status(line: ReportLine) -> str:
-    return "OK" if line.status.startswith("OK") else line.status
-
-
 def _title_block(layout: Layout, report: ClientReport) -> None:
     layout.text("INFORME DE COSTOS DE COMPONENTES", _font(10, bold=True), ACCENT, after=2)
     layout.text("Análisis de costo por volumen de fabricación", _font(22, bold=True), INK, after=2)
@@ -283,14 +279,14 @@ def _title_block(layout: Layout, report: ClientReport) -> None:
     layout.rule(after=10)
 
     queried = report.queried_at.strftime("%d-%m-%Y %H:%M") if report.queried_at else "—"
-    summary = report.summary
     pairs = [
         ("Cliente", report.client or "—"),
         ("Fecha del informe", report.generated_at.strftime("%d-%m-%Y")),
         ("Cantidad de referencia", f"{fmt_int(report.boards)} {'placa' if report.boards == 1 else 'placas'}"),
         ("Precios consultados", queried),
-        ("Partes distintas", f"{fmt_int(summary.included)} ({fmt_int(summary.priced)} con precio)"),
         ("Fuente y moneda", f"Mouser Electronics · {report.currency or '—'}"),
+        ("Costos", "Puestos en Chile (todo incluido)" if report.summary.landed is not None
+         else "Solo componentes (precio Mouser)"),
     ]
     label_font, value_font = _font(10), _font(12, bold=True)
     column_width = layout.width / 3
@@ -320,7 +316,8 @@ def _kpis(layout: Layout, report: ClientReport) -> None:
     tiles = [("Costo por placa", fmt_board_cost(report.cost_per_board, currency),
               f"a {fmt_int(report.boards)} {'placa' if report.boards == 1 else 'placas'}"),
              ("Costo total", fmt_money(summary.total, currency),
-              f"{fmt_int(report.boards)} {'placa' if report.boards == 1 else 'placas'}")]
+              f"{fmt_int(report.boards)} {'placa' if report.boards == 1 else 'placas'}"
+              + (", todo incluido" if summary.landed is not None else ""))]
     cheapest = report.cheapest
     if cheapest is not None and cheapest.boards != report.boards and report.cost_per_board:
         change = (cheapest.total_unit - report.cost_per_board) / report.cost_per_board * 100
@@ -382,8 +379,8 @@ def _chart(layout: Layout, report: ClientReport) -> None:
         p.save()
         p.translate(rect.topLeft())
         p.setRenderHint(QPainter.Antialiasing)
-        renderer.paint(p, rect.width(), rect.height(), _font(11), _font(10), cursor=None, shown=reference,
-                       readout=False, markers=True)
+        renderer.paint(p, rect.width(), rect.height(), _font(11), _font(10), shown=reference, readout=False,
+                       markers=True)
         p.restore()
 
     layout.block(height, draw, after=4)
@@ -400,7 +397,7 @@ def _scenario_table(layout: Layout, report: ClientReport) -> None:
     columns = [Column("Placas", 0.8, Qt.AlignRight), Column(f"Costo por placa ({currency})", 1.25, Qt.AlignRight),
                Column("Variación por placa", 1.05, Qt.AlignRight), Column(f"Costo total ({currency})", 1.25, Qt.AlignRight),
                Column(f"Solo componentes ({currency})", 1.3, Qt.AlignRight),
-               Column("Partes sin stock suficiente", 1.15, Qt.AlignRight), Column("Partes sin precio", 0.95, Qt.AlignRight)]
+               Column("Partes sin stock hoy", 1.15, Qt.AlignRight), Column("Partes sin precio", 0.95, Qt.AlignRight)]
     rows, highlight = [], set()
     for index, row in enumerate(report.scenarios):
         change = ""
@@ -423,7 +420,9 @@ def _scenario_table(layout: Layout, report: ClientReport) -> None:
                  color=LEVEL_COLORS[LEVEL_ERROR] if row.unpriced else None),
         ])
     layout.table(columns, rows, highlight=highlight, zebra=False)
-    notes = ["En verde, bajas de 10 % o más del costo por placa respecto de la cantidad anterior."]
+    notes = ["Supone que habrá stock de todas las partes; «Partes sin stock hoy» indica cuántas no alcanzan con el "
+             "stock actual de Mouser. En verde, bajas de 10 % o más del costo por placa respecto de la cantidad "
+             "anterior."]
     if report.boards in report.quantities:
         notes.append("La fila destacada es la cantidad de referencia.")
     if any(row.unpriced for row in report.scenarios):
@@ -441,12 +440,12 @@ def _top_parts(layout: Layout, report: ClientReport) -> None:
     count = min(3, len(top))
     layout.text(f"A {fmt_int(report.boards)} placas, las {count} partes de mayor costo suman el "
                 f"{fmt_num(share, 0)} % del costo de componentes.", _font(12), INK, after=8)
-    columns = [Column("Parte", 2.2), Column("Designadores", 1.6), Column("A comprar", 0.8, Qt.AlignRight),
-               Column(f"Precio unit. ({currency})", 1.0, Qt.AlignRight), Column(f"Total ({currency})", 1.0, Qt.AlignRight),
-               Column("% del costo", 1.2, Qt.AlignRight)]
+    columns = [Column("Parte", 2.6), Column("A comprar", 0.9, Qt.AlignRight),
+               Column(f"Precio unit. ({currency})", 1.1, Qt.AlignRight), Column(f"Total ({currency})", 1.1, Qt.AlignRight),
+               Column("% del costo de componentes", 1.4, Qt.AlignRight)]
     maximum = max(float(line.share or 0) for line in top) or 1.0
-    rows = [[Cell(line.mpn, bold=True, sub=line.manufacturer), Cell(line.designators),
-             Cell(fmt_int(line.buy_qty)), Cell(fmt_price(line.unit_price)), Cell(fmt_money(line.ext_price)),
+    rows = [[Cell(line.mpn, bold=True, sub=line.manufacturer), Cell(fmt_int(line.buy_qty)),
+             Cell(fmt_price(line.unit_price)), Cell(fmt_money(line.ext_price)),
              Cell(f"{fmt_num(line.share, 1)} %", bar=float(line.share or 0) / maximum)] for line in top]
     layout.table(columns, rows, zebra=False)
 
@@ -464,73 +463,60 @@ def _observations(layout: Layout, report: ClientReport) -> None:
         layout.space(6)
 
 
-def _price_matrix(layout: Layout, report: ClientReport) -> None:
-    lines = [line for line in report.lines if any(price is not None for price in line.prices)]
-    if not lines or not report.quantities:
-        return
-    layout.heading(f"Precio unitario según la cantidad ({report.currency})")
-    layout.text("Precio por unidad de cada parte según la cantidad de placas indicada en cada columna (incluye "
-                "mínimos, múltiplos y merma). En naranjo, cantidades para las que el stock actual de Mouser no alcanza.",
-                _font(10), MUTED, after=6)
-    columns = [Column("Parte", 2.6)] + [Column(fmt_int(q), 1.0, Qt.AlignRight) for q in report.quantities]
-    rows = []
-    for line in lines:
-        row = [Cell(line.mpn, bold=True, sub=line.designators)]
-        for qty, price, changed in zip(report.quantities, line.prices, line.changed):
-            short = line.short_from is not None and qty >= line.short_from
-            text = (fmt_price(price) + ("*" if changed else "")) if price is not None else "—"
-            row.append(Cell(text, color=LEVEL_COLORS[LEVEL_WARN] if short and price is not None else None,
-                            bold=qty == report.boards))
-        rows.append(row)
-    layout.table(columns, rows)
+def _pct(value) -> str:
+    return fmt_num(value, 0, 2)
 
 
-def _detail(layout: Layout, report: ClientReport) -> None:
-    currency = report.currency
-    layout.heading(f"Detalle de partes a {fmt_int(report.boards)} placas")
-    columns = [Column("#", 0.35, Qt.AlignRight), Column("Designadores", 1.25), Column("Parte", 2.15),
-               Column("Descripción", 1.75), Column("Por placa", 0.6, Qt.AlignRight),
-               Column("A comprar", 0.7, Qt.AlignRight), Column(f"Precio unit. ({currency})", 0.85, Qt.AlignRight),
-               Column(f"Total ({currency})", 0.85, Qt.AlignRight), Column("Estado", 1.05)]
-    rows = []
-    for line in report.lines:
-        sub = line.manufacturer + (" · por especificación" if line.by_spec else "")
-        rows.append([
-            Cell(str(line.number)), Cell(line.designators), Cell(line.mpn, bold=True, sub=sub.strip(" ·")),
-            Cell(line.description), Cell(fmt_int(line.qty_per_board)),
-            Cell(fmt_int(line.buy_qty) if line.buy_qty else "—"),
-            Cell(fmt_price(line.unit_price) if line.unit_price is not None else "—"),
-            Cell(fmt_money(line.ext_price) if line.ext_price is not None else "—"),
-            Cell(_status(line), color=_level_color(line.level), bold=line.level != LEVEL_OK),
-        ])
-    layout.table(columns, rows, font=_font(10), head_font=_font(10, bold=True), pad=3, after=6)
-    summary = report.summary
-    totals = [(f"Subtotal componentes ({fmt_int(summary.priced)} partes con precio)", fmt_money(summary.goods, currency))]
-    if summary.freight:
-        totals.append(("Flete estimado", fmt_money(summary.freight, currency)))
-    if summary.duty:
-        totals.append((f"Arancel ({report.params.duty_pct:g} %)", fmt_money(summary.duty, currency)))
-    if summary.vat:
-        totals.append((f"IVA ({report.params.vat_pct:g} %)", fmt_money(summary.vat, currency)))
-    if len(totals) > 1:
-        totals.append(("Total estimado", fmt_money(summary.total, currency)))
+def _cost_summary(layout: Layout, report: ClientReport) -> None:
+    """Cuánto cuesta la cantidad de referencia: componentes y, si se pidió, todo lo necesario para tenerlos en Chile."""
+    summary, currency, boards = report.summary, report.currency, report.boards
+    cost = summary.landed
+    layout.heading(f"Resumen de costos a {fmt_int(boards)} {'placa' if boards == 1 else 'placas'}")
+    columns = [Column("Concepto", 3.0), Column(f"Total ({currency})", 1.2, Qt.AlignRight),
+               Column(f"Por placa ({currency})", 1.2, Qt.AlignRight)]
+    rows: list[list[Cell]] = []
+    highlight: set[int] = set()
+
+    def add(label: str, value, bold: bool = False, sub: str = "", muted: bool = False, total: bool = False) -> None:
+        if total:
+            highlight.add(len(rows))
+        color = MUTED if muted else None
+        per_board = fmt_board_cost(value / boards) if boards else "—"
+        rows.append([Cell(label, bold=bold, sub=sub, color=color), Cell(fmt_money(value), bold=bold, color=color),
+                     Cell(per_board, bold=bold, color=color)])
+
+    missing = f"; {fmt_int(summary.unpriced)} sin precio no se incluyen" if summary.unpriced else ""
+    add("Componentes (precio Mouser)", summary.goods, sub=f"{fmt_int(summary.priced)} partes con precio{missing}")
+    if cost is not None:
+        rules = cost.setup.rules
+        vat = _pct(rules.vat_pct)
+        add("Flete de Mouser", cost.freight)
+        add(f"Derechos de aduana ({_pct(rules.duty_pct)} % del valor CIF)", cost.duty)
+        add(f"IVA de importación ({vat} %)", cost.vat)
+        add("Honorario de desaduanamiento (DHL)", cost.brokerage)
+        add(f"IVA del honorario ({vat} %)", cost.brokerage_vat)
+        add("Total puesto en Chile", cost.total, bold=True, total=True)
+        add("IVA incluido (crédito fiscal)", cost.vat_total, muted=True)
+        add("Total sin IVA", cost.net_total)
+    else:
+        if summary.freight:  # cotizaciones antiguas con costos ingresados a mano
+            add("Flete estimado", summary.freight)
+        if summary.duty:
+            add(f"Arancel ({report.params.duty_pct:g} %)", summary.duty)
+        if summary.vat:
+            add(f"IVA ({report.params.vat_pct:g} %)", summary.vat)
+        add("Total", summary.total, bold=True, total=True)
+    layout.table(columns, rows, zebra=False, highlight=highlight, after=6)
+    notes = []
     if summary.total_clp is not None:
-        totals.append(("Total estimado en pesos chilenos", f"CLP {fmt_int(summary.total_clp)}"))
-    for label, value in totals:
-        bold = len(totals) == 1 or label.startswith("Total estimado")
-        layout.ensure(18)
-        y = layout.y
-        font = _font(11, bold=bold)
-
-        def draw(p: QPainter, y=y, label=label, value=value, font=font) -> None:
-            p.setFont(font)
-            p.setPen(QColor(INK))
-            p.drawText(QRectF(layout.left, y, layout.width - 130, 16), label, layout.option(Qt.AlignRight))
-            p.drawText(QRectF(layout.left + layout.width - 120, y, 120, 16), value, layout.option(Qt.AlignRight))
-
-        layout.add(draw)
-        layout.space(17)
-    layout.space(8)
+        notes.append(f"Total en pesos chilenos: CLP {fmt_int(summary.total_clp)}.")
+    if cost is not None:
+        notes.append(f"Valor CIF de la importación: USD {fmt_num(cost.cif_usd, 2)}. Lo que cobra DHL se paga en "
+                     f"pesos al dólar aduanero ({fmt_num(cost.customs_rate, 2)} CLP).")
+    elif not (summary.freight or summary.duty or summary.vat):
+        notes.append("No incluye flete, derechos de aduana, IVA ni desaduanamiento.")
+    if notes:
+        layout.text(" ".join(notes), _font(10), MUTED, after=8)
 
 
 def _notes(layout: Layout, report: ClientReport) -> None:
@@ -568,26 +554,21 @@ def _decorate(painter: QPainter, layout: Layout, report: ClientReport, page: int
 class ReportSections:
     top_parts: bool = True
     observations: bool = True
-    price_matrix: bool = True
-    detail: bool = True
 
 
 def compose(layout: Layout, report: ClientReport, sections: ReportSections | None = None) -> None:
+    """Análisis comercial: resumen, gráfico, escenarios y costos; sin el BOM (no le interesa al cliente)."""
     sections = sections or ReportSections()
     _title_block(layout, report)
     _kpis(layout, report)
     _chart(layout, report)
     _scenario_table(layout, report)
-    if sections.top_parts or sections.observations or sections.price_matrix or sections.detail:
-        layout.new_page()
+    layout.new_page()
+    _cost_summary(layout, report)
     if sections.top_parts:
         _top_parts(layout, report)
     if sections.observations:
         _observations(layout, report)
-    if sections.price_matrix:
-        _price_matrix(layout, report)
-    if sections.detail:
-        _detail(layout, report)
     _notes(layout, report)
 
 

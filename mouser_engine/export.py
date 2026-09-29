@@ -20,6 +20,8 @@ from .models import (
     packaging_label,
 )
 from .cart import cart_lines
+from .formatting import fmt_num
+from .landed import month_name
 from .pricing import format_breaks
 from .scenarios import CostModel, CurvePoint, ScenarioRow, scenario_table
 
@@ -176,14 +178,8 @@ def export_excel(
         ("Subtotal optimizado por tramos", _num(summary.optimized_subtotal), _MONEY_FMT),
         ("Ahorro posible por tramos", _num(summary.savings), _MONEY_FMT),
         ("Subtotal componentes (usado)", _num(summary.goods), _MONEY_FMT),
-        ("Flete", _num(summary.freight), _MONEY_FMT),
-        (f"Arancel ({params.duty_pct:g}%)", _num(summary.duty), _MONEY_FMT),
-        (f"IVA ({params.vat_pct:g}%)", _num(summary.vat), _MONEY_FMT),
-        ("Total estimado", _num(summary.total), _MONEY_FMT),
     ]
-    if summary.total_clp is not None:
-        rows.append(("Tipo de cambio (CLP)", params.fx_rate, "#,##0.00"))
-        rows.append(("Total estimado en CLP", _num(summary.total_clp), "#,##0"))
+    rows += _cost_rows(summary, params)
     row_index = 3
     for label, value, fmt in rows:
         if label is not None:
@@ -195,11 +191,14 @@ def export_excel(
                 cell.font = Font(bold=True)
         row_index += 1
     row_index += 1
-    notes = [
-        "Precios y stock según la Mouser Search API al momento de la consulta; pueden cambiar.",
-        "El total de componentes no incluye envío, aranceles, IVA ni gastos de aduana salvo que "
-        "se hayan ingresado en los parámetros.",
-    ]
+    notes = ["Precios y stock según la Mouser Search API al momento de la consulta; pueden cambiar."]
+    if summary.landed is not None:
+        notes.append("El total puesto en Chile suma el flete de Mouser y lo que cobra DHL al importar: derechos, "
+                     "IVA y honorario de desaduanamiento con su IVA, al dólar aduanero del mes. Es una estimación: "
+                     "el flete y el honorario pueden variar con el peso y el valor del envío.")
+    elif not (summary.freight or summary.duty or summary.vat):
+        notes.append("El total no incluye flete, derechos de aduana, IVA ni desaduanamiento "
+                     "(active «Precio con todo incluido» en la aplicación).")
     if summary.mixed_currency:
         notes.append("ATENCIÓN: hay partes cotizadas en monedas distintas.")
     for note in notes:
@@ -298,6 +297,66 @@ def export_excel(
     return path
 
 
+def _pct(value) -> str:
+    return fmt_num(value, 0, 2)
+
+
+def _cost_rows(summary: QuoteSummary, params: QuoteParams) -> list[tuple[str | None, object, str | None]]:
+    """Filas de costos del Resumen: el desglose del precio puesto en Chile o el total de Mouser."""
+    cost = summary.landed
+    if cost is None:
+        rows: list[tuple[str | None, object, str | None]] = []
+        if summary.freight:  # cotizaciones antiguas con costos ingresados a mano
+            rows.append(("Flete", _num(summary.freight), _MONEY_FMT))
+        if summary.duty:
+            rows.append((f"Arancel ({params.duty_pct:g}%)", _num(summary.duty), _MONEY_FMT))
+        if summary.vat:
+            rows.append((f"IVA ({params.vat_pct:g}%)", _num(summary.vat), _MONEY_FMT))
+        rows.append(("Total estimado", _num(summary.total), _MONEY_FMT))
+        if summary.total_clp is not None:
+            rate = params.fx_rate or (params.import_setup.usd_rate if params.import_setup is not None else None)
+            if rate:
+                rows.append(("Tipo de cambio (CLP)", float(rate), "#,##0.00"))
+            rows.append(("Total estimado en CLP", _num(summary.total_clp), "#,##0"))
+        return rows
+    rules, rates = cost.setup.rules, cost.setup.rates
+    vat = _pct(rules.vat_pct)
+    rows = [
+        ("Flete de Mouser", _num(cost.freight), _MONEY_FMT),
+        ("Subtotal Mouser (mercancía y flete)", _num(cost.mouser_total), _MONEY_FMT),
+        (f"Derechos de aduana ({_pct(rules.duty_pct)} % del CIF)", _num(cost.duty), _MONEY_FMT),
+        (f"IVA de importación ({vat} %)", _num(cost.vat), _MONEY_FMT),
+        ("Honorario de desaduanamiento DHL", _num(cost.brokerage), _MONEY_FMT),
+        (f"IVA del honorario ({vat} %)", _num(cost.brokerage_vat), _MONEY_FMT),
+        ("Subtotal importación (DHL)", _num(cost.import_total), _MONEY_FMT),
+        ("Total puesto en Chile (todo incluido)", _num(cost.total), _MONEY_FMT),
+    ]
+    if summary.total_clp is not None:
+        rows.append(("Total puesto en Chile en CLP", _num(summary.total_clp), "#,##0"))
+    rows += [
+        ("IVA incluido (crédito fiscal)", _num(cost.vat_total), _MONEY_FMT),
+        ("Costo sin IVA", _num(cost.net_total), _MONEY_FMT),
+        (None, None, None),
+        ("Valor FOB (USD)", _num(cost.fob_usd), _MONEY_FMT),
+        ("Valor CIF (USD)", _num(cost.cif_usd), _MONEY_FMT),
+        ("Dólar observado (CLP)" + (f" del {_day(rates.usd_date)}" if rates.usd_date else ""),
+         float(cost.usd_rate), "#,##0.00"),
+        ("Dólar aduanero (CLP)" + (f" de {month_name(rates.customs_month)}" if rates.customs_month else ""),
+         float(cost.customs_rate), "#,##0.00"),
+    ]
+    if cost.setup.estimated_rates:
+        rows.append(("Tipo de cambio", "de referencia (sin conexión)", None))
+    return rows
+
+
+def _day(text: str) -> str:
+    """"2026-09-29" -> "29-09-2026"."""
+    try:
+        return datetime.strptime(text[:10], "%Y-%m-%d").strftime("%d-%m-%Y")
+    except ValueError:
+        return text
+
+
 def _chart_title(text: str):
     """Título de gráfico en 11 pt (el predeterminado de Excel es demasiado grande para estos gráficos)."""
     from openpyxl.chart.text import RichText, Text
@@ -322,8 +381,11 @@ def _write_scenarios(sheet, rows: list[ScenarioRow], curve: list[CurvePoint], pa
         details.append(f"Cliente: {client_name}")
     details.append(f"Merma general {params.spares_pct:g} %, pasivos {params.passive_spares_pct:g} %")
     details.append("optimización por tramos: " + ("sí" if params.optimize_breaks else "no"))
-    if params.freight or params.duty_pct or params.vat_pct:
+    if params.landed and params.import_setup is not None:
+        details.append("precio puesto en Chile: incluye flete, aduana, IVA y desaduanamiento")
+    elif params.freight or params.duty_pct or params.vat_pct:
         details.append("incluye flete, arancel e IVA ingresados")
+    details.append("supone stock disponible de todas las partes")
     sheet["A2"] = " · ".join(details)
     sheet["A2"].font = Font(italic=True, color="555555")
 

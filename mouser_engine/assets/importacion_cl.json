@@ -1,0 +1,28 @@
+{
+  "version": "2026-09-29",
+  "descripcion": "Reglas para el precio con todo incluido (puesto en Chile) de una compra en Mouser importada por DHL Express. La aplicación descarga este archivo de la rama main del repositorio al abrirse, así que basta con actualizarlo aquí (y la versión, AAAA-MM-DD); sin conexión usa la copia incluida en el programa. flete_en_cif indica si el flete de Mouser se suma al valor CIF; los tramos van de menor a mayor y el último puede no tener límite (null).",
+  "iva_pct": 19,
+  "derechos_pct": 6,
+  "seguro_pct": 2,
+  "flete_en_cif": false,
+  "flete_mouser_usd": [
+    {
+      "hasta_fob_usd": null,
+      "usd": 59
+    }
+  ],
+  "honorario_desaduanamiento_usd": [
+    {
+      "hasta_cif_usd": null,
+      "usd": 96
+    }
+  ],
+  "dolar_referencia": 935,
+  "notas": [
+    "El flete de Mouser y el honorario de desaduanamiento de DHL están calibrados con una factura real de DHL Express (2026).",
+    "Seguro presunto de 2 % del FOB (el envío no trae póliza); derechos de 6 % del CIF; IVA de 19 % sobre CIF más derechos. El honorario de DHL también paga IVA.",
+    "En esa factura DHL declaró en aduana un flete casi nulo (no el que cobra Mouser), por eso el flete no se suma al valor CIF.",
+    "Las compras sobre USD 1.000 FOB requieren declaración formal (DIN): el honorario puede ser mayor.",
+    "El dólar de referencia solo se usa si nunca hubo conexión para obtener el dólar del día."
+  ]
+}

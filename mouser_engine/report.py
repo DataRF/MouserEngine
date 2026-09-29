@@ -1,17 +1,19 @@
 """Informe de costos para el cliente: los datos del análisis por volumen (sin Qt).
 
 El informe es genérico (no usa la plantilla de la empresa) y está pensado para la empresa para la
-que se diseña: muestra cuánto cuestan los componentes según la cantidad a fabricar, qué partes
-pesan más, los riesgos de stock y el detalle de cada parte. No incluye margen de venta.
+que se diseña: es un análisis comercial que muestra cuánto cuestan los componentes según la
+cantidad a fabricar (puestos en Chile si se pidió el precio con todo incluido), qué partes pesan
+más y los riesgos de stock. No incluye el BOM ni margen de venta.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from datetime import datetime
 from decimal import Decimal
 
-from .formatting import fmt_int, fmt_money
+from .formatting import fmt_int, fmt_money, fmt_num
+from .landed import month_name
 from .models import (
     LEVEL_ERROR,
     LEVEL_EXCLUDED,
@@ -24,7 +26,6 @@ from .models import (
 )
 from .quote import quote_all, summarize
 from .scenarios import CostModel, CurvePoint, ScenarioRow, scenario_table
-from .utils import normalize_pn
 
 TOP_PARTS = 8
 
@@ -52,8 +53,6 @@ class ReportLine:
     level: str
     status: str
     by_spec: bool
-    prices: list[Decimal | None] = field(default_factory=list)  # precio unitario en cada cantidad comparada
-    changed: list[bool] = field(default_factory=list)  # a esa cantidad conviene otra presentación o fabricante
     short_from: int | None = None  # primera cantidad comparada en que el stock de Mouser no alcanza
 
 
@@ -123,7 +122,7 @@ def build_client_report(items: list[BomItem], params: QuoteParams, quantities: l
     """Arma el informe para `params.boards` placas (cantidad de referencia) y las cantidades comparadas."""
     quantities = sorted({int(q) for q in quantities if int(q) > 0})
     boards = max(1, int(params.boards))
-    params = replace(params, boards=boards)
+    params = replace(params, boards=boards, assume_stock=True)  # análisis de volumen: se supone stock
     max_boards = max(int(max_boards), quantities[-1] if quantities else 1, boards, 10)
     quotes = quote_all(items, params)
     summary = summarize(items, quotes, params)
@@ -139,11 +138,9 @@ def build_client_report(items: list[BomItem], params: QuoteParams, quantities: l
         share = None
         if q.ext_price is not None and summary.goods:
             share = (q.ext_price / summary.goods * 100).quantize(Decimal("0.1"))
-        prices, changed, short_from = [], [], None
+        short_from = None
         for qty in quantities:
             other = by_quantity[qty][index]
-            prices.append(other.unit_price)
-            changed.append(bool(part and other.part and normalize_pn(other.part.mouser_pn) != normalize_pn(part.mouser_pn)))
             if (short_from is None and other.part is not None and other.part.stock is not None and other.buy_qty
                     and other.part.stock < other.buy_qty):
                 short_from = qty
@@ -152,7 +149,7 @@ def build_client_report(items: list[BomItem], params: QuoteParams, quantities: l
             manufacturer=part.manufacturer if part else item.manufacturer, description=_describe(item, q),
             qty_per_board=item.qty_per_board, required=q.required, buy_qty=q.buy_qty, unit_price=q.unit_price,
             ext_price=q.ext_price, share=share, stock=part.stock if part else None, level=q.level, status=q.status,
-            by_spec=item.by_spec and item.manual_part is None, prices=prices, changed=changed, short_from=short_from))
+            by_spec=item.by_spec and item.manual_part is None, short_from=short_from))
 
     top = sorted((line for line in lines if line.ext_price), key=lambda line: -line.ext_price)[:TOP_PARTS]
     report = ClientReport(
@@ -246,6 +243,7 @@ def _notes(report: ClientReport, items: list[BomItem]) -> list[str]:
         spares += f" ({p.passive_spares_pct:g} % en resistencias, condensadores e inductores)"
     notes.append("Las cantidades de compra respetan el mínimo de venta y el múltiplo de cada parte, "
                  f"con {spares}.")
+    cost = report.summary.landed
     extras = []
     if p.freight:
         extras.append(f"flete estimado de {fmt_money(p.freight, report.currency)}")
@@ -253,10 +251,33 @@ def _notes(report: ClientReport, items: list[BomItem]) -> list[str]:
         extras.append(f"arancel de {p.duty_pct:g} %")
     if p.vat_pct:
         extras.append(f"IVA de {p.vat_pct:g} %")
-    if extras:
+    if cost is not None:
+        rules, rates = cost.setup.rules, cost.setup.rates
+        notes.append("Los costos son puestos en Chile (todo incluido): suman el flete de Mouser y lo que se paga al "
+                     f"importar por DHL Express: derechos de aduana ({fmt_num(rules.duty_pct, 0, 2)} % del valor CIF), "
+                     f"IVA ({fmt_num(rules.vat_pct, 0, 2)} %) y el honorario de desaduanamiento con su IVA. "
+                     "El flete y el honorario son valores de referencia y pueden variar con el peso y el valor "
+                     "del envío.")
+        if cost.setup.estimated_rates:
+            notes.append(f"Tipo de cambio de referencia: {fmt_num(cost.usd_rate, 2)} CLP por USD (no se pudo obtener "
+                         "el del día).")
+        else:
+            usd = f"dólar observado de {fmt_num(cost.usd_rate, 2)} CLP"
+            if rates.usd_date:
+                usd += f" del {_date(rates.usd_date)}"
+            customs = f"dólar aduanero de {fmt_num(cost.customs_rate, 2)} CLP"
+            if rates.customs_month:
+                customs += f" ({month_name(rates.customs_month)})"
+            notes.append(f"Tipo de cambio: {usd}; lo que cobra DHL se convierte al {customs}, según el Banco "
+                         "Central de Chile.")
+        notes.append("El IVA incluido es crédito fiscal para una empresa contribuyente de IVA.")
+    elif extras:
         notes.append("Los costos incluyen " + ", ".join(extras) + " (valores de referencia).")
     else:
-        notes.append("Los costos no incluyen flete, aranceles ni IVA.")
+        notes.append("Los costos son los precios de Mouser: no incluyen flete, derechos de aduana, IVA ni "
+                     "desaduanamiento.")
+    notes.append("El análisis por volumen supone que habrá stock de todas las partes: en cada cantidad se considera "
+                 "la opción de menor costo. Las observaciones indican dónde el stock actual de Mouser no alcanza.")
     if p.optimize_breaks:
         notes.append("Se aplicó optimización por tramos de precio: en algunas partes se compran más unidades "
                      "porque el total resulta menor.")
@@ -264,9 +285,6 @@ def _notes(report: ClientReport, items: list[BomItem]) -> list[str]:
         notes.append("Las resistencias y condensadores sin número de parte en el BOM se cotizaron con una opción "
                      "que cumple o supera la especificación indicada (valor, encapsulado, tolerancia, potencia, "
                      "tensión y dieléctrico), de un fabricante reconocido.")
-    if any(True in line.changed for line in report.lines):
-        notes.append("En «Precio unitario según la cantidad», * indica que a esa cantidad conviene otra presentación "
-                     "o fabricante de la misma parte (por ejemplo, carrete en vez de cinta cortada).")
     if p.fx_rate and report.summary.total_clp is not None:
         notes.append(f"Tipo de cambio de referencia: {p.fx_rate:g} CLP por {report.currency}.")
     notes.append("El análisis considera solo los componentes: no incluye la fabricación del circuito impreso, el "

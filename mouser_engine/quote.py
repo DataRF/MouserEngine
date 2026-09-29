@@ -21,6 +21,7 @@ from .models import (
     lead_time_label,
 )
 from .formatting import fmt_int, fmt_money
+from .landed import landed_cost
 from .mouser_api import LookupResult
 from .passives import PassiveSpec, candidate_spec, is_recognized
 from .pricing import best_option, money, price_for_qty, purchase_qty
@@ -47,12 +48,19 @@ def _option_cost(part: Part, required: int) -> Decimal | None:
     return option.ext_price if option else None
 
 
-def rank_options(parts: Iterable[Part], required: int) -> list[Part]:
-    """Ordena opciones de mejor a peor: con precio, con stock suficiente, vigente, más barata."""
+def _in_stock(part: Part, qty: int, assume_stock: bool) -> bool:
+    return assume_stock or (part.stock is not None and part.stock >= qty)
+
+
+def rank_options(parts: Iterable[Part], required: int, assume_stock: bool = False) -> list[Part]:
+    """Ordena opciones de mejor a peor: con precio, con stock suficiente, vigente, más barata.
+
+    Con `assume_stock` (análisis de volumen) el stock no cuenta: se supone que habrá.
+    """
     def score(part: Part) -> tuple:
         qty = purchase_qty(max(required, 1), part.min_qty, part.mult)
         cost = _option_cost(part, required)
-        in_stock = part.stock is not None and part.stock >= qty
+        in_stock = _in_stock(part, qty, assume_stock)
         return (
             0 if part.orderable else 1,
             0 if in_stock else 1,
@@ -63,13 +71,13 @@ def rank_options(parts: Iterable[Part], required: int) -> list[Part]:
     return sorted(parts, key=score)
 
 
-def rank_spec_options(parts: Iterable[Part], required: int) -> list[Part]:
+def rank_spec_options(parts: Iterable[Part], required: int, assume_stock: bool = False) -> list[Part]:
     """Opciones que ya cumplen la especificación, de mejor a peor: con precio, stock suficiente,
     fabricante reconocido, vigente, menor costo total, mejor tolerancia y más stock."""
     def score(part: Part) -> tuple:
         qty = purchase_qty(max(required, 1), part.min_qty, part.mult)
         cost = _option_cost(part, required)
-        in_stock = part.stock is not None and part.stock >= qty
+        in_stock = _in_stock(part, qty, assume_stock)
         tolerance = candidate_spec(part).tolerance
         return (
             0 if part.orderable else 1,
@@ -83,7 +91,7 @@ def rank_spec_options(parts: Iterable[Part], required: int) -> list[Part]:
     return sorted(parts, key=score)
 
 
-def select_part(item: BomItem, required: int) -> tuple[Part | None, dict]:
+def select_part(item: BomItem, required: int, assume_stock: bool = False) -> tuple[Part | None, dict]:
     """Elige la opción a comprar. Devuelve (parte, marcas) con marcas informativas."""
     flags: dict = {}
     if item.manual_part is not None:
@@ -92,7 +100,7 @@ def select_part(item: BomItem, required: int) -> tuple[Part | None, dict]:
     if item.by_spec:
         if not item.candidates:
             return None, flags
-        best = rank_spec_options(item.candidates, required)[0]
+        best = rank_spec_options(item.candidates, required, assume_stock)[0]
         flags["auto_spec"] = True
         if not is_recognized(best.manufacturer):
             flags["unrecognized"] = True
@@ -111,7 +119,7 @@ def select_part(item: BomItem, required: int) -> tuple[Part | None, dict]:
             flags["mfr_mismatch"] = True
     elif len({normalize_mfr(p.manufacturer) for p in pool}) > 1:
         flags["ambiguous"] = True
-    best = rank_options(pool, required)[0]
+    best = rank_options(pool, required, assume_stock)[0]
     return best, flags
 
 
@@ -171,7 +179,7 @@ def quote_item(item: BomItem, params: QuoteParams) -> ItemQuote:
     elif item.lookup_state == "error" and not item.candidates and item.manual_part is None:
         q.add(LEVEL_ERROR, "Error de consulta", item.lookup_error or "Error al consultar Mouser.")
 
-    part, flags = select_part(item, q.required)
+    part, flags = select_part(item, q.required, params.assume_stock)
     if part is None:
         if item.lookup_state == "done":
             note = f"«{item.base_query}» no se encontró en Mouser."
@@ -188,7 +196,8 @@ def quote_item(item: BomItem, params: QuoteParams) -> ItemQuote:
         q.add(LEVEL_ERROR, "Sin precio",
               "Mouser no informa precio para esta parte (puede no estar disponible para venta).")
     elif q.required > 0:
-        base, best = best_option(part.price_breaks, q.required, part.min_qty, part.mult, part.stock)
+        stock = None if params.assume_stock else part.stock  # análisis de volumen: el stock no limita
+        base, best = best_option(part.price_breaks, q.required, part.min_qty, part.mult, stock)
         if base is not None:
             q.base_qty, q.base_unit_price, q.base_ext_price = base.qty, base.unit_price, base.ext_price
             q.opt_qty, q.opt_unit_price, q.opt_ext_price = best.qty, best.unit_price, best.ext_price
@@ -337,13 +346,25 @@ def summarize(items: list[BomItem], quotes: list[ItemQuote], params: QuoteParams
     s.currency = next(iter(currencies)) if len(currencies) == 1 else (
         "/".join(sorted(currencies)) if currencies else "")
     s.mixed_currency = len(currencies) > 1
+    setup = params.import_setup
+    if params.landed and setup is not None and not s.mixed_currency:
+        s.landed = landed_cost(s.goods, s.currency, setup)
+    if s.landed is not None:  # precio con todo incluido: flete de Mouser, aduana, IVA y desaduanamiento
+        cost = s.landed
+        s.freight, s.duty, s.vat = cost.freight, cost.duty, cost.vat + cost.brokerage_vat
+        s.total = cost.total
+        s.total_clp = cost.total_clp if s.currency != "CLP" else None
+        return s
     s.freight = money(Decimal(str(params.freight or 0)))
     base = s.goods + s.freight
     s.duty = money(base * _pct(params.duty_pct))
     s.vat = money((base + s.duty) * _pct(params.vat_pct))
     s.total = money(base + s.duty + s.vat)
-    if params.fx_rate and params.fx_rate > 0 and s.currency != "CLP":  # en CLP no hay nada que convertir
-        s.total_clp = (s.total * Decimal(str(params.fx_rate))).quantize(Decimal(1), rounding=ROUND_HALF_UP)
+    rate = Decimal(str(params.fx_rate)) if params.fx_rate and params.fx_rate > 0 else None
+    if rate is None and setup is not None and s.currency == "USD":
+        rate = setup.usd_rate  # dólar observado del día
+    if rate and s.currency != "CLP":  # en CLP no hay nada que convertir
+        s.total_clp = (s.total * rate).quantize(Decimal(1), rounding=ROUND_HALF_UP)
     return s
 
 

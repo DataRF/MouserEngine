@@ -58,16 +58,16 @@ class ScenariosPanel(QWidget):
     settings_changed = Signal(str, object)  # (nombre del ajuste, valor)
 
     COLUMNS = ["Placas", "Costo\npor placa", "Variación\npor placa", "Costo\ntotal", "Solo\ncomponentes",
-               "Ahorro posible\npor tramos", "Partes sin\nstock suficiente", "Partes\nsin precio"]
+               "Ahorro posible\npor tramos", "Partes sin\nstock hoy", "Partes\nsin precio"]
     COLUMN_TIPS = [
         "Cantidad de placas o equipos a fabricar",
-        "Costo total dividido por la cantidad de placas (incluye flete, arancel e IVA si se ingresaron)",
+        "Costo total dividido por la cantidad de placas (con «Precio con todo incluido», puesto en Chile)",
         "Cambio del costo por placa respecto de la fila anterior",
-        "Componentes más flete, arancel e IVA",
+        "Con «Precio con todo incluido»: componentes más flete, aduana, IVA y desaduanamiento",
         "Solo el precio de los componentes en Mouser",
         "Lo que se ahorraría comprando hasta el siguiente tramo de precio cuando sale más barato "
         "(se aplica con «Optimizar por tramos de precio»)",
-        "Partes cuyo stock en Mouser no alcanza para esa cantidad",
+        "Partes cuyo stock actual en Mouser no alcanza para esa cantidad (el análisis supone que habrá stock)",
         "Partes sin precio en Mouser: no se suman al costo",
     ]
 
@@ -80,6 +80,7 @@ class ScenariosPanel(QWidget):
         self._model: CostModel | None = None
         self._rows: list[ScenarioRow] = []
         self._current_boards = 1
+        self._landed = False
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.setInterval(150)
@@ -112,7 +113,7 @@ class ScenariosPanel(QWidget):
         slider_row.addWidget(QLabel("Cantidad:"))
         self.slider = QSlider(Qt.Horizontal)
         self.slider.setRange(0, SLIDER_STEPS)
-        self.slider.setToolTip("Mueva la barra para ver el costo en cada cantidad (escala logarítmica)")
+        self.slider.setToolTip("Mueva la barra: el gráfico se va formando desde 1 placa hasta la cantidad elegida")
         self.slider.valueChanged.connect(self._slider_moved)
         slider_row.addWidget(self.slider, 1)
         self.boards_spin = QSpinBox()
@@ -189,6 +190,7 @@ class ScenariosPanel(QWidget):
         """Programa el recálculo (se agrupan cambios seguidos)."""
         self._inputs = (items, params)
         self._current_boards = current_boards
+        self._landed = bool(params.landed and params.import_setup is not None)
         self.chart.set_stale(bool(self.chart.points))
         self._timer.start()
 
@@ -285,8 +287,11 @@ class ScenariosPanel(QWidget):
                         cell.setToolTip("Cantidad usada en la cotización actual")
                 self.table.setItem(r, c, cell)
             self.table.item(r, 0).setData(Qt.UserRole, row.boards)
-        notes = []
-        if rows and any(r.total != r.goods for r in rows):
+        notes = ["Supone que hay stock de todas las partes (se considera la opción de menor costo)."]
+        if rows and self._landed and any(r.total != r.goods for r in rows):
+            notes.append("El costo por placa y el total son puestos en Chile: incluyen flete, aduana, IVA y "
+                         "desaduanamiento.")
+        elif rows and any(r.total != r.goods for r in rows):
             notes.append("El costo por placa y el total incluyen el flete, arancel e IVA ingresados.")
         if rows and rows[-1].unpriced:
             notes.append(f"{rows[-1].unpriced} partes sin precio no se incluyen (revíselas en la pestaña Partes).")

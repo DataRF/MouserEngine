@@ -8,6 +8,8 @@ from __future__ import annotations
 import os
 import sys
 import time
+from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -24,9 +26,16 @@ from mouser_engine.config import Settings  # noqa: E402
 from mouser_engine.gui.cart_dialogs import CartConfirmDialog, CartResultDialog  # noqa: E402
 from mouser_engine.gui.dialogs import ImportDialog, SearchDialog, SettingsDialog  # noqa: E402
 from mouser_engine.gui.history_dialogs import ComparisonDialog, HistoryDialog  # noqa: E402
+from mouser_engine.gui.landed_dialog import LandedDialog  # noqa: E402
 from mouser_engine.gui.main_window import MainWindow  # noqa: E402
 from mouser_engine.gui.report_dialog import ClientReportDialog  # noqa: E402
+from mouser_engine.landed import ExchangeRates, ImportUpdate  # noqa: E402
 from mouser_engine.mouser_api import MouserClient, RateLimiter  # noqa: E402
+
+# Dólar de ejemplo para las capturas (la aplicación lo obtiene del Banco Central al abrirse).
+RATES = ExchangeRates(usd=Decimal("942.25"), usd_date="2026-09-29", customs=Decimal("933.9"),
+                      customs_date="2026-08-28", customs_month="2026-09",
+                      fetched_at=datetime.now().isoformat(timespec="seconds"))
 
 
 def pump(app, seconds: float = 0.3) -> None:
@@ -48,7 +57,8 @@ def main() -> int:
 
     settings = Settings(api_key="test-key", cart_api_key="cart-key", boards=10, passive_spares_pct=10,
                         client_name="Cliente de ejemplo")
-    window = MainWindow(settings=settings, client_factory=factory, persist=False)
+    window = MainWindow(settings=settings, client_factory=factory, persist=False,
+                        import_updater=lambda: ImportUpdate(rates=RATES))
     window.interactive = False
     window.resize(1500, 920)
     window.show()
@@ -82,21 +92,28 @@ def main() -> int:
     window.select_item(cap)
     window.detail.setCurrentIndex(1)
     window.boards_spin.setValue(250)
-    window.vat_spin.setValue(19)
-    window.fx_spin.setValue(950)
     window.optimize_check.setChecked(True)
     pump(app, 0.6)
     window.grab().save(str(out / "05_tramos_optimizados.png"))
 
     window.boards_spin.setValue(10)
-    window.vat_spin.setValue(0)
-    window.fx_spin.setValue(0)
     window.optimize_check.setChecked(False)
+    window.landed_check.setChecked(True)
+    pump(app, 0.6)
+    window.grab().save(str(out / "18_todo_incluido.png"))
+    detail = LandedDialog(window.summary.landed, window.params.boards, window)
+    detail.show()
+    pump(app)
+    detail.grab().save(str(out / "19_desglose.png"))
+    detail.close()
     window.main_tabs.setCurrentIndex(1)
     deadline = time.monotonic() + 10
     while not window.scenarios.chart.points and time.monotonic() < deadline:
         pump(app, 0.05)
     pump(app, 0.6)
+    window.scenarios.set_boards(8)
+    pump(app)
+    window.grab().save(str(out / "08a_escenarios_inicio.png"))
     window.scenarios.set_boards(40)
     pump(app)
     window.grab().save(str(out / "08_escenarios.png"))

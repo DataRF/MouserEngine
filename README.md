@@ -35,8 +35,9 @@ que va a fabricar.
   Samsung, KEMET, etc.). Lo que el BOM no indica se completa con valores configurables (por ejemplo,
   tolerancia 5 % y tensión mínima 16 V) y la línea queda marcada para revisar.
 - **Escenarios de volumen**: costo por placa y costo total para 1, 10, 25, 50, 100, 500 y 1.000 placas
-  (cantidades editables). Una barra de cantidad recorre el gráfico de costo por placa y de costo total, y
-  la tabla destaca en verde las bajas de 10 % o más.
+  (cantidades editables). El gráfico parte en 1 placa y se va formando al mover la barra de cantidad: los
+  ejes llegan a la cantidad elegida más 20 %, así se aprecian bien las primeras unidades. La tabla destaca
+  en verde las bajas de 10 % o más. El análisis supone que hay stock de todas las partes.
 - **Alertas** en cada línea:
   - sin stock o stock insuficiente, con plazo de fábrica y unidades en pedido;
   - parte obsoleta, en fin de vida o no recomendada para diseños nuevos (NRND), con el reemplazo que
@@ -47,19 +48,20 @@ que va a fabricar.
   total. Por ejemplo, 100 unidades pueden costar menos que 88.
 - **Búsqueda en Mouser** por palabras clave para asignar una parte a las líneas sin número de parte o
   no encontradas.
-- **Costos adicionales (estimación)**: flete, arancel e IVA, y conversión a pesos chilenos con el dólar
-  observado del día (Banco Central de Chile, vía mindicador.cl).
+- **Precio con todo incluido (puesto en Chile)**: con una casilla, suma el flete de Mouser y lo que cobra
+  DHL al importar: derechos de aduana (6 % del CIF), IVA (19 %) y honorario de desaduanamiento con su IVA.
+  El dólar observado del día y el dólar aduanero del mes se obtienen solos al abrir la aplicación (Banco
+  Central de Chile, vía mindicador.cl): no hay que ingresar nada.
 - **Carro en Mouser**: crea el carro directamente en su cuenta de Mouser con la Cart API. La aplicación
   **solo crea el carro; nunca envía pedidos**. La compra se revisa y se confirma en mouser.com.
 - **Historial en este computador**: guarda cada cotización con sus precios y stock para reabrirla,
   compararla con los precios de hoy o exportarla. Muestra además la evolución del precio de cada parte.
-- **Informe PDF para el cliente**: análisis de costo por volumen con plantilla genérica (sin la marca de
-  la empresa) para entregar a la empresa para la que se diseña. Incluye:
+- **Informe PDF para el cliente**: análisis comercial del costo por volumen, con plantilla genérica (sin la
+  marca de la empresa), para entregar a la empresa para la que se diseña. No incluye el BOM. Tiene:
   - resumen, gráfico y escenarios comparados;
+  - el resumen de costos (puestos en Chile si la casilla está activa);
   - las partes que más influyen en el costo;
-  - observaciones de stock y ciclo de vida;
-  - el precio de cada parte según la cantidad;
-  - el detalle de partes.
+  - observaciones de stock y ciclo de vida.
 - **Exportación**:
   - **Excel** con resumen (empresa y cliente), escenarios de volumen con gráficos, detalle, problemas,
     carro y BOM original;
@@ -120,9 +122,12 @@ La moneda de los precios es la de su cuenta de Mouser; se muestra en la primera 
    compra. Las líneas con cantidad 0 quedan excluidas (no montar).
 2. **Cotización**: ingrese el cliente (la empresa para la que se diseña), el número de placas y la merma.
    - La merma de pasivos reemplaza a la general para resistencias, condensadores, inductores y ferritas.
+   - Active **Precio con todo incluido** para ver el costo puesto en Chile (flete, aduana, IVA y
+     desaduanamiento). «Ver desglose» muestra el cálculo línea por línea.
 3. **Revise las alertas**: filtre por «Con problemas» y use la pestaña **Opciones en Mouser** o
    **Buscar en Mouser** para corregir.
-4. **Escenarios de volumen**: mueva la barra de cantidad o haga clic en el gráfico. «Usar en la
+4. **Escenarios de volumen**: mueva la barra de cantidad y el gráfico se irá formando desde 1 placa; un
+   clic en el gráfico elige esa cantidad (a la derecha de la curva, sigue avanzando). «Usar en la
    cotización» lleva esa cantidad al campo de placas. La vista «Separada» muestra dos gráficos.
 5. **Guarde, exporte o cree el carro**:
    - **Exportar** ofrece el Excel, el informe PDF para el cliente y el carro en CSV;
@@ -149,26 +154,58 @@ En **Exportar → Informe PDF para el cliente** (Ctrl+P) se elige:
 - las cantidades a comparar;
 - el tipo de gráfico (superpuesto o separado);
 - el tamaño de hoja (carta o A4);
-- las secciones a incluir.
+- si incluye las partes que más influyen en el costo y las observaciones.
 
-El informe usa una plantilla genérica y no incluye margen de venta. Sus secciones:
+El informe es un análisis comercial: usa una plantilla genérica, no incluye el BOM ni margen de venta.
+Sus secciones:
 
 1. **Resumen**: cliente, fecha de los precios y cifras clave (costo por placa y total a la cantidad de
    referencia, y costo por placa a la cantidad mayor).
-2. **Gráfico y escenarios**: el mismo gráfico de la aplicación y la tabla de cantidades comparadas.
-3. **Partes que más influyen en el costo**, con su porcentaje del total.
-4. **Observaciones**:
+2. **Gráfico y escenarios**: la curva completa (cantidad en escala logarítmica) y la tabla de cantidades
+   comparadas.
+3. **Resumen de costos** a la cantidad de referencia: componentes y, con «Precio con todo incluido», flete,
+   derechos, IVA y desaduanamiento, con el total y el costo por placa.
+4. **Partes que más influyen en el costo**, con su porcentaje del total.
+5. **Observaciones**:
    - stock insuficiente a la cantidad de referencia;
    - stock que no alcanza para volúmenes mayores;
    - ciclo de vida;
    - partes sin precio;
    - compras mínimas altas.
-5. **Precio unitario según la cantidad**: el precio de cada parte en cada escenario.
-6. **Detalle de partes** y **notas** sobre qué incluye el costo.
+6. **Notas** sobre qué incluye el costo y el tipo de cambio usado.
 
 El PDF es vectorial: se puede ampliar sin perder calidad y su texto se puede buscar y copiar.
 
 ![Informe PDF para el cliente](docs/captura_informe.png)
+
+### Precio con todo incluido (puesto en Chile)
+
+La casilla **Precio con todo incluido** suma a los componentes todo lo que se paga para tenerlos en Chile,
+tal como en una compra real en Mouser importada por DHL Express:
+
+| Concepto | Cálculo |
+| --- | --- |
+| Flete de Mouser | USD 59 por pedido |
+| Seguro | 2 % del valor FOB (seguro presunto: el envío no trae póliza) |
+| Valor CIF | FOB + seguro (DHL declara un flete casi nulo) |
+| Derechos de aduana | 6 % del CIF |
+| IVA de importación | 19 % de CIF + derechos |
+| Honorario de desaduanamiento DHL | USD 96 + 19 % de IVA |
+
+- **Dólar observado** del día (lo que cobra Mouser) y **dólar aduanero** del mes (lo que cobra DHL: el dólar
+  observado del penúltimo día hábil bancario del mes anterior). Se obtienen al abrir la aplicación desde
+  el Banco Central de Chile, vía mindicador.cl; sin conexión se usa el último obtenido.
+- **Reglas de importación** (porcentajes, flete de Mouser y tramos del honorario de DHL): están en
+  `mouser_engine/assets/importacion_cl.json`. La aplicación descarga ese archivo de la rama `main` al
+  abrirse, así que para cambiar un valor basta con actualizarlo en el repositorio, sin reinstalar.
+- Las cuentas de Mouser en USD muestran además el total en pesos. El desglose indica el IVA incluido, que
+  para una empresa es crédito fiscal, y el costo sin IVA.
+- El flete y el honorario están calibrados con una factura real. Pueden variar con el peso y el valor del
+  envío; las compras sobre USD 1.000 FOB requieren declaración formal (DIN) y el honorario puede ser mayor.
+
+El total puesto en Chile se usa en las tarjetas, los escenarios de volumen, el Excel y el informe PDF.
+
+![Desglose del precio con todo incluido](docs/captura_desglose.png)
 
 ### Historial
 
@@ -209,8 +246,8 @@ automáticamente y muestra las consultas del día en el panel izquierdo.
 
 Mouser entrega los precios en la moneda de la cuenta y con su formato local. Por ejemplo, en pesos
 chilenos `$1.234` son mil doscientos treinta y cuatro pesos. La aplicación lee cada precio según su
-moneda y verifica que los tramos no suban de precio con la cantidad. Si la cuenta ya cotiza en CLP, el
-campo «Cambio a CLP» se desactiva.
+moneda y verifica que los tramos no suban de precio con la cantidad. Si la cuenta cotiza en USD, el total
+se muestra también en pesos con el dólar observado del día.
 
 ### Datos para diagnóstico
 
@@ -220,9 +257,10 @@ API.**
 
 ### Qué no incluye el total
 
-El subtotal corresponde solo a los componentes, según Mouser en el momento de la consulta. Flete,
-arancel e IVA son estimaciones con los valores que usted ingrese. Precios y stock pueden cambiar entre
-la cotización y la compra; al crear el carro, Mouser confirma el precio de cada ítem.
+Sin «Precio con todo incluido», el total corresponde solo a los componentes, según Mouser en el momento
+de la consulta. Con la casilla activa incluye flete, aduana, IVA y desaduanamiento estimados como se
+describe arriba. Precios y stock pueden cambiar entre la cotización y la compra; al crear el carro,
+Mouser confirma el precio de cada ítem.
 
 ## Desarrollo
 
@@ -249,7 +287,9 @@ adjunta a un Release, que queda disponible en el enlace de descarga directa.
 | `mouser_engine/lookup.py` | Consulta completa del BOM: números de parte y pasivos por especificación |
 | `mouser_engine/pricing.py` | Cantidades de compra (mínimo/múltiplo) y tramos de precio |
 | `mouser_engine/quote.py` | Selección de la mejor opción, estados y totales |
-| `mouser_engine/scenarios.py` | Escenarios de volumen y curva de costo por cantidad |
+| `mouser_engine/scenarios.py` | Escenarios de volumen y curva de costo por cantidad (suponiendo stock) |
+| `mouser_engine/landed.py` | Precio puesto en Chile: reglas de importación, dólar observado y aduanero, desglose |
+| `mouser_engine/assets/importacion_cl.json` | Reglas de importación vigentes (la aplicación las descarga de `main`) |
 | `mouser_engine/cart.py` | Líneas del carro y referencias para Mouser |
 | `mouser_engine/history.py` | Historial local (SQLite), historial de precios y comparación |
 | `mouser_engine/report.py` | Datos del informe para el cliente: escenarios, partes clave, observaciones y notas |

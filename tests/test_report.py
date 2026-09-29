@@ -31,9 +31,10 @@ def build(items, **params):
 
 def test_summary_and_scenarios_match_quote_engine(items):
     report = build(items)
-    p = QuoteParams(boards=10, passive_spares_pct=10)
+    p = QuoteParams(boards=10, passive_spares_pct=10, assume_stock=True)  # el análisis supone stock
     summary = summarize(items, quote_all(items, p), p)
     assert report.summary.total == summary.total and report.boards == 10
+    assert report.params.assume_stock
     assert report.cost_per_board == (summary.total / 10).quantize(Decimal("0.0001"))
     expected = scenario_table(items, p, QUANTITIES)
     assert [(r.boards, r.total, r.total_unit) for r in report.scenarios] == [
@@ -43,21 +44,17 @@ def test_summary_and_scenarios_match_quote_engine(items):
     assert report.client == "ACME" and report.project == "Placa X" and report.currency == "USD"
 
 
-def test_lines_top_parts_and_price_matrix(items):
+def test_lines_and_top_parts(items):
     report = build(items)
     assert len(report.lines) == report.summary.included == 11  # la línea «no montar» no aparece
     shares = sum(line.share for line in report.priced_lines)
     assert abs(shares - 100) < Decimal("0.5")
     assert [line.mpn for line in report.top[:3]] == ["STM32F103C8T6", "BAT54S,215", "ESP32-WROOM-32E-N4"]
     assert report.top == sorted(report.top, key=lambda line: -line.ext_price)
-    cap = next(line for line in report.lines if line.mpn == "GRM188R71C104KA01D")
-    assert len(cap.prices) == len(QUANTITIES)
-    assert cap.prices[0] > cap.prices[1]  # 9 unidades a precio unitario, 88 en el tramo de 10
-    assert cap.prices[1] == cap.unit_price
     esp32 = next(line for line in report.lines if line.mpn == "ESP32-WROOM-32E-N4")
     assert esp32.short_from == 500  # 150 en stock: alcanza hasta 100 placas
     missing = next(line for line in report.lines if line.mpn == "XYZ-NOTREAL-1")
-    assert missing.ext_price is None and all(price is None for price in missing.prices)
+    assert missing.ext_price is None and missing.share is None
     passive = next(line for line in report.lines if line.designators == "R11")
     assert passive.by_spec and passive.mpn == "CRCW06034K70FKEA"
 

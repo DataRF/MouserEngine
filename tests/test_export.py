@@ -1,10 +1,12 @@
 import csv
 from datetime import datetime
+from decimal import Decimal
 
 from openpyxl import load_workbook
 
 from mouser_engine.bom import build_items, load_table
 from mouser_engine.export import cart_rows, export_cart_csv, export_excel
+from mouser_engine.landed import ExchangeRates, ImportSetup, builtin_rules
 from mouser_engine.models import QuoteParams
 from mouser_engine.quote import apply_lookup, queries_for, quote_all, summarize
 
@@ -43,6 +45,28 @@ def test_export_excel(client, example_bom, tmp_path):
     problems = list(wb["Problemas"].iter_rows(min_row=2, values_only=True))
     assert len(problems) == summary.warn + summary.error
     assert wb["BOM original"]["A4"].value == "Designador"
+
+
+def test_export_excel_with_landed_cost(client, example_bom, tmp_path):
+    setup = ImportSetup(builtin_rules(), ExchangeRates(usd=Decimal("942.25"), usd_date="2026-09-29",
+                                                       customs=Decimal("933.9"), customs_month="2026-09"))
+    table, items, quotes, summary, params = build(client, example_bom, boards=10, landed=True, import_setup=setup)
+    path = export_excel(tmp_path / "cot.xlsx", items, quotes, summary, params, scenario_quantities=[1, 10, 100],
+                        scenario_max=100)
+    wb = load_workbook(path)
+    resumen = {row[0]: row[1] for row in wb["Resumen"].iter_rows(min_row=3, values_only=True) if row[0]}
+    cost = summary.landed
+    assert abs(resumen["Total puesto en Chile (todo incluido)"] - float(cost.total)) < 0.001
+    assert abs(resumen["Honorario de desaduanamiento DHL"] - float(cost.brokerage)) < 0.001
+    assert abs(resumen["Derechos de aduana (6 % del CIF)"] - float(cost.duty)) < 0.001
+    assert resumen["Total puesto en Chile en CLP"] == float(cost.total_clp)
+    assert resumen["Dólar observado (CLP) del 29-09-2026"] == 942.25
+    assert resumen["Dólar aduanero (CLP) de septiembre"] == 933.9
+    assert "Total estimado" not in resumen
+    notes = " ".join(str(c.value) for row in wb["Resumen"].iter_rows() for c in row if isinstance(c.value, str))
+    assert "puesto en Chile suma el flete" in notes
+    escenarios = wb["Escenarios"]
+    assert "puesto en Chile" in escenarios["A2"].value and "supone stock" in escenarios["A2"].value
 
 
 def test_cart_rows_and_csv(client, example_bom, tmp_path):
